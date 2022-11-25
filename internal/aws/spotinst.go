@@ -1,0 +1,432 @@
+/* Copyright © 2022 Mike Brown. All Rights Reserved.
+ *
+ * See LICENSE file at the root of this package for license terms
+ */
+package aws
+
+import (
+	"context"
+	"encoding/base64"
+	"fmt"
+	"io/ioutil"
+	"os"
+	"path/filepath"
+	"time"
+
+	"github.com/mikeb26/spotsh/internal"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/aws/aws-sdk-go-v2/service/ssm"
+)
+
+const defaultMaxSpotPrice = "0.08"
+const defaultInstanceType = types.InstanceTypeC5aLarge
+const defaultOperatingSystem = internal.AmazonLinux2
+const defaultTagKey = "spotsh.user"
+
+type instanceIdEntry struct {
+	os       internal.OperatingSystem
+	desc     string
+	ssmParam string
+	user     string
+}
+
+var instanceIdTab = []instanceIdEntry{
+	internal.OsNone: instanceIdEntry{},
+	internal.Ubuntu22_04: instanceIdEntry{
+		os:       internal.Ubuntu22_04,
+		desc:     "Ubuntu 22.04 LTS",
+		ssmParam: "/aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp2/ami-id",
+		user:     "ubuntu",
+	},
+	internal.AmazonLinux2: instanceIdEntry{
+		os:       internal.AmazonLinux2,
+		desc:     "Amazon Linux 2",
+		ssmParam: "/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2",
+		user:     "ec2-user",
+	},
+}
+
+func getLatestAmiId(ctx context.Context, awsCfg aws.Config,
+	os internal.OperatingSystem) (string, error) {
+
+	if os == internal.OsNone {
+		return "", fmt.Errorf("Must specify os type to determine latest ami")
+	}
+	idx := uint64(os)
+	if idx > uint64(internal.OsInvalid) {
+		return "", fmt.Errorf("No such os index %v", idx)
+	}
+	idEntry := &instanceIdTab[idx]
+
+	ssmClient := ssm.NewFromConfig(awsCfg)
+	getParamInput := &ssm.GetParameterInput{
+		Name: &idEntry.ssmParam,
+	}
+	getParamOutput, err := ssmClient.GetParameter(ctx, getParamInput)
+	if err != nil {
+		return "", err
+	}
+
+	return *getParamOutput.Parameter.Value, nil
+}
+
+func getKeyName(awsCfg aws.Config) string {
+	return fmt.Sprintf("spotsh.%v", awsCfg.Region)
+}
+
+func createDefaultKeyPair(ctx context.Context, awsCfg aws.Config,
+	ec2Client *ec2.Client) error {
+
+	homedir, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	sshdir := filepath.Join(homedir, ".ssh")
+	err = os.MkdirAll(sshdir, 0700)
+	if err != nil {
+		return err
+	}
+
+	keyName := getKeyName(awsCfg)
+	dryRun := false
+	createKeyInput := &ec2.CreateKeyPairInput{
+		KeyName:   &keyName,
+		DryRun:    &dryRun,
+		KeyFormat: types.KeyFormatPem,
+		KeyType:   types.KeyTypeEd25519,
+	}
+	createKeyOutput, err := ec2Client.CreateKeyPair(ctx, createKeyInput)
+	if err != nil {
+		return err
+	}
+	localKeyFile := filepath.Join(sshdir, keyName)
+	err = ioutil.WriteFile(localKeyFile, []byte(*createKeyOutput.KeyMaterial),
+		0400)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func GetLocalKeyFile(ctx context.Context) (string, error) {
+	homedir, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	awsCfg, err := config.LoadDefaultConfig(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	keyName := getKeyName(awsCfg)
+
+	return filepath.Join(homedir, ".ssh", keyName), nil
+}
+
+func haveDefaultKeyPair(ctx context.Context, awsCfg aws.Config) (bool, error) {
+	homedir, err := os.UserHomeDir()
+	if err != nil {
+		return false, err
+	}
+	keyName := getKeyName(awsCfg)
+	localKeyFile := filepath.Join(homedir, ".ssh", keyName)
+	_, err = os.Stat(localKeyFile)
+	if os.IsNotExist(err) {
+		return false, nil
+	} else if err != nil {
+		return false, err
+	} // else
+
+	return true, err
+}
+
+func getDefaultSecurityGroupId(ctx context.Context,
+	ec2Client *ec2.Client) (string, error) {
+
+	dryRun := false
+	maxResults := int32(1000)
+	descVpcsInput := &ec2.DescribeVpcsInput{
+		DryRun:     &dryRun,
+		MaxResults: &maxResults,
+	}
+	descVpcsOutput, err := ec2Client.DescribeVpcs(ctx, descVpcsInput)
+	if err != nil {
+		return "", err
+	}
+	var vpcId string
+	for _, vpc := range descVpcsOutput.Vpcs {
+		if !*vpc.IsDefault {
+			continue
+		}
+
+		vpcId = *vpc.VpcId
+		break
+	}
+
+	if vpcId == "" {
+		return "", fmt.Errorf("Could not find default VPC")
+	}
+	descSgInput := &ec2.DescribeSecurityGroupsInput{
+		DryRun:     &dryRun,
+		MaxResults: &maxResults,
+	}
+	descSgOutput, err := ec2Client.DescribeSecurityGroups(ctx, descSgInput)
+	if err != nil {
+		return "", err
+	}
+	for _, sg := range descSgOutput.SecurityGroups {
+		if *sg.VpcId != vpcId {
+			continue
+		}
+		if *sg.GroupName == "default" {
+			return *sg.GroupId, nil
+		}
+	}
+
+	return "", fmt.Errorf("Could not find default Security Group in vpc %v",
+		vpcId)
+}
+
+type LaunchEc2SpotArgs struct {
+	Os              internal.OperatingSystem // optional; defaults to AmazonLinux2
+	AmiId           string                   // optional; overrides Os; defaults to latest ami for specified Os
+	KeyPair         string                   // optional; defaults to spotinst keypair
+	SecurityGroupId string                   // optional; defaults to default VPC's default SG
+	AttachRoleName  string                   // optional; defaults to no attached role
+	InitCmd         string                   // optional; defaults to empty
+	InstanceType    types.InstanceType       // optional; defaults to c5a.large
+	MaxSpotPrice    string                   // optional; defaults to "0.08" (USD$/hour)
+}
+
+type LaunchEc2SpotResult struct {
+	PublicIp   string
+	InstanceId string
+	User       string
+}
+
+func LaunchEc2Spot(ctx context.Context,
+	launchArgs *LaunchEc2SpotArgs) (LaunchEc2SpotResult, error) {
+
+	if launchArgs == nil {
+		launchArgs = &LaunchEc2SpotArgs{}
+	}
+
+	var launchResult LaunchEc2SpotResult
+	awsCfg, err := config.LoadDefaultConfig(ctx)
+	if err != nil {
+		return launchResult, err
+	}
+	ec2Client := ec2.NewFromConfig(awsCfg)
+
+	spotPrice := launchArgs.MaxSpotPrice
+	if spotPrice == "" {
+		spotPrice = defaultMaxSpotPrice
+	}
+	spotOpts := &types.SpotMarketOptions{
+		InstanceInterruptionBehavior: types.InstanceInterruptionBehaviorTerminate,
+		MaxPrice:                     &spotPrice,
+		SpotInstanceType:             types.SpotInstanceTypeOneTime,
+	}
+	marketOpts := &types.InstanceMarketOptionsRequest{
+		MarketType:  types.MarketTypeSpot,
+		SpotOptions: spotOpts,
+	}
+
+	iamOpts := &types.IamInstanceProfileSpecification{}
+	if launchArgs.AttachRoleName != "" {
+		iamOpts.Name = &launchArgs.AttachRoleName
+	} else {
+		iamOpts = nil
+	}
+	maxCount := int32(1)
+	minCount := int32(1)
+
+	var keyName *string
+	if launchArgs.KeyPair != "" {
+		keyName = &launchArgs.KeyPair
+	} else {
+		haveDefaultKey, err := haveDefaultKeyPair(ctx, awsCfg)
+		if err != nil {
+			return launchResult, err
+		}
+		if !haveDefaultKey {
+			err = createDefaultKeyPair(ctx, awsCfg, ec2Client)
+			if err != nil {
+				return launchResult, err
+			}
+		}
+		keyPair := getKeyName(awsCfg)
+		keyName = &keyPair
+	}
+	var initCmdEncoded *string
+	if launchArgs.InitCmd != "" {
+		initCmdEncodedActual :=
+			base64.StdEncoding.EncodeToString([]byte(launchArgs.InitCmd))
+		initCmdEncoded = &initCmdEncodedActual
+	} else {
+		initCmdEncoded = nil
+	}
+	amiId := launchArgs.AmiId
+	if amiId == "" {
+		if launchArgs.Os == internal.OsNone {
+			launchArgs.Os = defaultOperatingSystem
+		}
+		amiId, err = getLatestAmiId(ctx, awsCfg, launchArgs.Os)
+		if err != nil {
+			return launchResult, err
+		}
+	}
+	sgId := launchArgs.SecurityGroupId
+	if sgId == "" {
+		sgId, err = getDefaultSecurityGroupId(ctx, ec2Client)
+		if err != nil {
+			return launchResult, err
+		}
+	}
+	iType := launchArgs.InstanceType
+	if iType == "" {
+		iType = defaultInstanceType
+	}
+	if launchArgs.Os != internal.OsNone {
+		idx := int(launchArgs.Os)
+		launchResult.User = instanceIdTab[idx].user
+	} else {
+		launchResult.User = "<unknown>"
+	}
+	tagKey := defaultTagKey
+	tagVal := launchResult.User
+	tag := types.Tag{
+		Key:   &tagKey,
+		Value: &tagVal,
+	}
+	tagSpec := types.TagSpecification{
+		ResourceType: types.ResourceTypeInstance,
+		Tags:         []types.Tag{tag},
+	}
+	runInput := &ec2.RunInstancesInput{
+		MaxCount:                          &maxCount,
+		MinCount:                          &minCount,
+		IamInstanceProfile:                iamOpts,
+		ImageId:                           &amiId,
+		InstanceInitiatedShutdownBehavior: types.ShutdownBehaviorTerminate,
+		InstanceMarketOptions:             marketOpts,
+		InstanceType:                      iType,
+		KeyName:                           keyName,
+		SecurityGroupIds:                  []string{sgId},
+		UserData:                          initCmdEncoded,
+		TagSpecifications:                 []types.TagSpecification{tagSpec},
+	}
+	runOutput, err := ec2Client.RunInstances(ctx, runInput)
+	if err != nil {
+		return launchResult, err
+	}
+
+	if len(runOutput.Instances) != 1 {
+		panic(fmt.Sprintf("Unexpected instance count: %v", len(runOutput.Instances)))
+	}
+
+	instanceId := *runOutput.Instances[0].InstanceId
+	launchResult.InstanceId = instanceId
+
+	for {
+		time.Sleep(1 * time.Second)
+
+		describeInput := &ec2.DescribeInstancesInput{
+			InstanceIds: []string{instanceId},
+		}
+		descOutput, err := ec2Client.DescribeInstances(ctx, describeInput)
+		if err != nil {
+			// launched succeeded but we couldn't determine the public ip;
+			// treat as success
+			break
+		}
+
+		if len(descOutput.Reservations) != 1 {
+			panic(fmt.Sprintf("Unexpected reservations count: %v",
+				len(descOutput.Reservations)))
+		}
+		if len(descOutput.Reservations[0].Instances) != 1 {
+			panic(fmt.Sprintf("Unexpected reservations' instances count: %v",
+				len(descOutput.Reservations[0].Instances)))
+		}
+		if descOutput.Reservations[0].Instances[0].PublicIpAddress != nil {
+			launchResult.PublicIp =
+				*descOutput.Reservations[0].Instances[0].PublicIpAddress
+			break
+		}
+	}
+
+	return launchResult, nil
+}
+
+func TerminateInstance(ctx context.Context, instanceId string) error {
+	awsCfg, err := config.LoadDefaultConfig(ctx)
+	if err != nil {
+		return err
+	}
+	ec2Client := ec2.NewFromConfig(awsCfg)
+
+	dryRun := false
+	termInput := &ec2.TerminateInstancesInput{
+		InstanceIds: []string{instanceId},
+		DryRun:      &dryRun,
+	}
+	_, err = ec2Client.TerminateInstances(ctx, termInput)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func LookupEc2Spot(ctx context.Context) (LaunchEc2SpotResult, error) {
+
+	var launchResult LaunchEc2SpotResult
+
+	awsCfg, err := config.LoadDefaultConfig(ctx)
+	if err != nil {
+		return launchResult, err
+	}
+	ec2Client := ec2.NewFromConfig(awsCfg)
+	dryRun := false
+	maxResults := int32(1000)
+	describeInput := &ec2.DescribeInstancesInput{
+		DryRun:     &dryRun,
+		MaxResults: &maxResults,
+	}
+	descOutput, err := ec2Client.DescribeInstances(ctx, describeInput)
+	if err != nil {
+		return launchResult, err
+	}
+	var foundInst *types.Instance
+	var user string
+
+Findinst:
+	for _, resv := range descOutput.Reservations {
+		for _, inst := range resv.Instances {
+			for _, tag := range inst.Tags {
+				if *tag.Key != defaultTagKey {
+					continue
+				}
+
+				foundInst = &inst
+				user = *tag.Value
+				break Findinst
+			}
+		}
+	}
+	if foundInst == nil {
+		return launchResult, fmt.Errorf("Not found")
+	}
+
+	launchResult.InstanceId = *foundInst.InstanceId
+	launchResult.PublicIp = *foundInst.PublicIpAddress
+	launchResult.User = user
+
+	return launchResult, nil
+}

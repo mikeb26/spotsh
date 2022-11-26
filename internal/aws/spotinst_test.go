@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/mikeb26/spotsh/internal"
 )
 
@@ -48,24 +47,6 @@ func TestSsmParam(t *testing.T) {
 			t.Fatalf("get latest ami for %v returned unexpected id: %v",
 				os, amiId)
 		}
-	}
-}
-
-func TestGetDefaultSecurityGroupId(t *testing.T) {
-	ctx := context.Background()
-
-	awsCfg, err := config.LoadDefaultConfig(ctx)
-	if err != nil {
-		t.Fatalf("failed to init aws config: %v", err)
-	}
-	ec2Client := ec2.NewFromConfig(awsCfg)
-	sgId, err := getDefaultSecurityGroupId(ctx, ec2Client)
-	if err != nil {
-		t.Fatalf("failed to get default security group id: %v", err)
-	}
-	if !strings.Contains(sgId, "sg-") {
-		t.Fatalf("get default security group id returned unexpected id: %v",
-			sgId)
 	}
 }
 

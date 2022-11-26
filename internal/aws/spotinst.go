@@ -8,9 +8,6 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"io/ioutil"
-	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/mikeb26/spotsh/internal"
@@ -25,7 +22,6 @@ import (
 const defaultMaxSpotPrice = "0.08"
 const defaultInstanceType = types.InstanceTypeC5aLarge
 const defaultOperatingSystem = internal.AmazonLinux2
-const defaultTagKey = "spotsh.user"
 
 type instanceIdEntry struct {
 	os       internal.OperatingSystem
@@ -72,124 +68,6 @@ func getLatestAmiId(ctx context.Context, awsCfg aws.Config,
 	}
 
 	return *getParamOutput.Parameter.Value, nil
-}
-
-func getKeyName(awsCfg aws.Config) string {
-	return fmt.Sprintf("spotsh.%v", awsCfg.Region)
-}
-
-func createDefaultKeyPair(ctx context.Context, awsCfg aws.Config,
-	ec2Client *ec2.Client) error {
-
-	homedir, err := os.UserHomeDir()
-	if err != nil {
-		return err
-	}
-	sshdir := filepath.Join(homedir, ".ssh")
-	err = os.MkdirAll(sshdir, 0700)
-	if err != nil {
-		return err
-	}
-
-	keyName := getKeyName(awsCfg)
-	dryRun := false
-	createKeyInput := &ec2.CreateKeyPairInput{
-		KeyName:   &keyName,
-		DryRun:    &dryRun,
-		KeyFormat: types.KeyFormatPem,
-		KeyType:   types.KeyTypeEd25519,
-	}
-	createKeyOutput, err := ec2Client.CreateKeyPair(ctx, createKeyInput)
-	if err != nil {
-		return err
-	}
-	localKeyFile := filepath.Join(sshdir, keyName)
-	err = ioutil.WriteFile(localKeyFile, []byte(*createKeyOutput.KeyMaterial),
-		0400)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func GetLocalKeyFile(ctx context.Context) (string, error) {
-	homedir, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	awsCfg, err := config.LoadDefaultConfig(ctx)
-	if err != nil {
-		return "", err
-	}
-
-	keyName := getKeyName(awsCfg)
-
-	return filepath.Join(homedir, ".ssh", keyName), nil
-}
-
-func haveDefaultKeyPair(ctx context.Context, awsCfg aws.Config) (bool, error) {
-	homedir, err := os.UserHomeDir()
-	if err != nil {
-		return false, err
-	}
-	keyName := getKeyName(awsCfg)
-	localKeyFile := filepath.Join(homedir, ".ssh", keyName)
-	_, err = os.Stat(localKeyFile)
-	if os.IsNotExist(err) {
-		return false, nil
-	} else if err != nil {
-		return false, err
-	} // else
-
-	return true, err
-}
-
-func getDefaultSecurityGroupId(ctx context.Context,
-	ec2Client *ec2.Client) (string, error) {
-
-	dryRun := false
-	maxResults := int32(1000)
-	descVpcsInput := &ec2.DescribeVpcsInput{
-		DryRun:     &dryRun,
-		MaxResults: &maxResults,
-	}
-	descVpcsOutput, err := ec2Client.DescribeVpcs(ctx, descVpcsInput)
-	if err != nil {
-		return "", err
-	}
-	var vpcId string
-	for _, vpc := range descVpcsOutput.Vpcs {
-		if !*vpc.IsDefault {
-			continue
-		}
-
-		vpcId = *vpc.VpcId
-		break
-	}
-
-	if vpcId == "" {
-		return "", fmt.Errorf("Could not find default VPC")
-	}
-	descSgInput := &ec2.DescribeSecurityGroupsInput{
-		DryRun:     &dryRun,
-		MaxResults: &maxResults,
-	}
-	descSgOutput, err := ec2Client.DescribeSecurityGroups(ctx, descSgInput)
-	if err != nil {
-		return "", err
-	}
-	for _, sg := range descSgOutput.SecurityGroups {
-		if *sg.VpcId != vpcId {
-			continue
-		}
-		if *sg.GroupName == "default" {
-			return *sg.GroupId, nil
-		}
-	}
-
-	return "", fmt.Errorf("Could not find default Security Group in vpc %v",
-		vpcId)
 }
 
 type LaunchEc2SpotArgs struct {
@@ -384,13 +262,13 @@ func TerminateInstance(ctx context.Context, instanceId string) error {
 	return nil
 }
 
-func LookupEc2Spot(ctx context.Context) (LaunchEc2SpotResult, error) {
+func LookupEc2Spot(ctx context.Context) ([]LaunchEc2SpotResult, error) {
 
-	var launchResult LaunchEc2SpotResult
+	launchResults := make([]LaunchEc2SpotResult, 0)
 
 	awsCfg, err := config.LoadDefaultConfig(ctx)
 	if err != nil {
-		return launchResult, err
+		return launchResults, err
 	}
 	ec2Client := ec2.NewFromConfig(awsCfg)
 	dryRun := false
@@ -401,32 +279,31 @@ func LookupEc2Spot(ctx context.Context) (LaunchEc2SpotResult, error) {
 	}
 	descOutput, err := ec2Client.DescribeInstances(ctx, describeInput)
 	if err != nil {
-		return launchResult, err
+		return launchResults, err
 	}
-	var foundInst *types.Instance
-	var user string
 
-Findinst:
 	for _, resv := range descOutput.Reservations {
 		for _, inst := range resv.Instances {
 			for _, tag := range inst.Tags {
-				if *tag.Key != defaultTagKey {
+				if inst.State.Name != types.InstanceStateNameRunning ||
+					*tag.Key != defaultTagKey {
 					continue
 				}
 
-				foundInst = &inst
-				user = *tag.Value
-				break Findinst
+				publicIp := ""
+				if inst.PublicIpAddress != nil {
+					publicIp = *inst.PublicIpAddress
+				}
+				launchResult := LaunchEc2SpotResult{
+					InstanceId: *inst.InstanceId,
+					PublicIp:   publicIp,
+					User:       *tag.Value,
+				}
+
+				launchResults = append(launchResults, launchResult)
 			}
 		}
 	}
-	if foundInst == nil {
-		return launchResult, fmt.Errorf("Not found")
-	}
 
-	launchResult.InstanceId = *foundInst.InstanceId
-	launchResult.PublicIp = *foundInst.PublicIpAddress
-	launchResult.User = user
-
-	return launchResult, nil
+	return launchResults, nil
 }

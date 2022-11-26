@@ -1,0 +1,134 @@
+/* Copyright © 2022 Mike Brown. All Rights Reserved.
+ *
+ * See LICENSE file at the root of this package for license terms
+ */
+package aws
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
+)
+
+func getDefaultSecurityGroupId(ctx context.Context,
+	ec2Client *ec2.Client) (string, error) {
+
+	dryRun := false
+	maxResults := int32(1000)
+	descVpcsInput := &ec2.DescribeVpcsInput{
+		DryRun:     &dryRun,
+		MaxResults: &maxResults,
+	}
+	descVpcsOutput, err := ec2Client.DescribeVpcs(ctx, descVpcsInput)
+	if err != nil {
+		return "", err
+	}
+	var vpcId string
+	for _, vpc := range descVpcsOutput.Vpcs {
+		if !*vpc.IsDefault {
+			continue
+		}
+
+		vpcId = *vpc.VpcId
+		break
+	}
+
+	if vpcId == "" {
+		return "", fmt.Errorf("Could not find default VPC")
+	}
+	descSgInput := &ec2.DescribeSecurityGroupsInput{
+		DryRun:     &dryRun,
+		MaxResults: &maxResults,
+	}
+	descSgOutput, err := ec2Client.DescribeSecurityGroups(ctx, descSgInput)
+	if err != nil {
+		return "", err
+	}
+	for _, sg := range descSgOutput.SecurityGroups {
+		if *sg.VpcId != vpcId {
+			continue
+		}
+		if *sg.GroupName == "default" {
+			return *sg.GroupId, nil
+		}
+	}
+
+	return "", fmt.Errorf("Could not find default Security Group in vpc %v",
+		vpcId)
+}
+
+type LookupVpcSgsSg struct {
+	Id   string
+	Name string
+}
+
+type LookupVpcSgsVpc struct {
+	Id      string
+	Default bool
+	Sgs     map[string]*LookupVpcSgsSg
+}
+
+type LookupVpcSgsResult struct {
+	Vpcs map[string]*LookupVpcSgsVpc
+}
+
+func LookupVpcSecurityGroups(ctx context.Context) (LookupVpcSgsResult, error) {
+
+	lookupVpcSgsResult := LookupVpcSgsResult{
+		Vpcs: make(map[string]*LookupVpcSgsVpc),
+	}
+
+	awsCfg, err := config.LoadDefaultConfig(ctx)
+	if err != nil {
+		return lookupVpcSgsResult, err
+	}
+	ec2Client := ec2.NewFromConfig(awsCfg)
+
+	dryRun := false
+	maxResults := int32(1000)
+	descVpcsInput := &ec2.DescribeVpcsInput{
+		DryRun:     &dryRun,
+		MaxResults: &maxResults,
+	}
+	descVpcsOutput, err := ec2Client.DescribeVpcs(ctx, descVpcsInput)
+	if err != nil {
+		return lookupVpcSgsResult, err
+	}
+	for _, vpc := range descVpcsOutput.Vpcs {
+		vpcResult := &LookupVpcSgsVpc{
+			Id:      *vpc.VpcId,
+			Default: *vpc.IsDefault,
+			Sgs:     make(map[string]*LookupVpcSgsSg),
+		}
+		lookupVpcSgsResult.Vpcs[vpcResult.Id] = vpcResult
+	}
+
+	descSgInput := &ec2.DescribeSecurityGroupsInput{
+		DryRun:     &dryRun,
+		MaxResults: &maxResults,
+	}
+	descSgOutput, err := ec2Client.DescribeSecurityGroups(ctx, descSgInput)
+	if err != nil {
+		return lookupVpcSgsResult, err
+	}
+	for _, sg := range descSgOutput.SecurityGroups {
+		vpc, ok := lookupVpcSgsResult.Vpcs[*sg.VpcId]
+		if !ok {
+			// Vpc must have just been created between DescribeVpcs and
+			// DescribeSecurityGroups() calls; skip it
+			continue
+		}
+		sgResult := &LookupVpcSgsSg{
+			Id:   *sg.GroupId,
+			Name: "",
+		}
+		if sg.GroupName != nil {
+			sgResult.Name = *sg.GroupName
+		}
+		vpc.Sgs[sgResult.Id] = sgResult
+	}
+
+	return lookupVpcSgsResult, nil
+}

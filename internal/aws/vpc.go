@@ -34,10 +34,15 @@ func getDefaultSecurityGroupId(ctx context.Context,
 		vpcId = *vpc.VpcId
 		break
 	}
-
 	if vpcId == "" {
-		return "", fmt.Errorf("Could not find default VPC")
+		if len(descVpcsOutput.Vpcs) != 1 {
+			return "", fmt.Errorf("Could not find default VPC")
+		}
+		// if there's only 1 VPC then it's the only reasonable choice even
+		// if it is not EC2's notion of 'default VPC'
+		vpcId = *descVpcsOutput.Vpcs[0].VpcId
 	}
+
 	descSgInput := &ec2.DescribeSecurityGroupsInput{
 		DryRun:     &dryRun,
 		MaxResults: &maxResults,
@@ -46,17 +51,27 @@ func getDefaultSecurityGroupId(ctx context.Context,
 	if err != nil {
 		return "", err
 	}
+
+	numSgInVpc := 0
+	foundDefaultSg := false
+	var sgId string
 	for _, sg := range descSgOutput.SecurityGroups {
 		if *sg.VpcId != vpcId {
 			continue
 		}
+		numSgInVpc++
+		sgId = *sg.GroupId
 		if *sg.GroupName == "default" {
-			return *sg.GroupId, nil
+			foundDefaultSg = true
+			break
 		}
 	}
+	if !foundDefaultSg && numSgInVpc != 1 {
+		return "", fmt.Errorf("Could not find default Security Group in vpc %v",
+			vpcId)
+	}
 
-	return "", fmt.Errorf("Could not find default Security Group in vpc %v",
-		vpcId)
+	return sgId, nil
 }
 
 type LookupVpcSgsSg struct {

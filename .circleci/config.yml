@@ -28,8 +28,8 @@ jobs:
           command: |
             if [ "$CIRCLE_TAG" != "" ]
             then
-                rm version.txt
-                make version.txt
+                rm cmd/spotsh/version.txt
+                make cmd/spotsh/version.txt
             fi          
             make build
       - aws-cli/setup:

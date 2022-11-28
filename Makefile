@@ -21,9 +21,9 @@ vendor: go.mod
 	go mod download
 	go mod vendor
 
-version.txt:
-	git describe --tags > version.txt
-	truncate -s -1 version.txt
+cmd/spotsh/version.txt:
+	git describe --tags > cmd/spotsh/version.txt
+	truncate -s -1 cmd/spotsh/version.txt
 
 .PHONY: clean
 clean:

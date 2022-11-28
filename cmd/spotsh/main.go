@@ -107,6 +107,9 @@ func infoMain(args []string) error {
 		fmt.Printf("\tKey[%v]:\n", idx)
 		fmt.Printf("\t\tId: %v\n", keyId)
 		fmt.Printf("\t\tName: %v\n", key.Name)
+		if key.LocalKeyFile != "" {
+			fmt.Printf("\t\tLocal: %v\n", key.LocalKeyFile)
+		}
 		idx++
 	}
 

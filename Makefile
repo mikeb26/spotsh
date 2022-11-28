@@ -14,6 +14,7 @@ test:
 	go test $(TESTPKGS)
 
 unit-tests.xml: FORCE
+	aws ec2 delete-key-pair --key-name $(AWS_REGION)
 	gotestsum --junitfile unit-tests.xml $(TESTPKGS)
 
 vendor: go.mod

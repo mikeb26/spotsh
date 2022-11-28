@@ -71,8 +71,8 @@ func infoMain(args []string) error {
 		fmt.Printf("Spot shell instances:\n")
 		for idx, lr := range launchResults {
 			fmt.Printf("\tInstance[%v]:\n", idx)
-			fmt.Printf("\t\tId: %v\n\t\tPublicIp: %v\n\t\tUser: %v\n", lr.InstanceId,
-				lr.PublicIp, lr.User)
+			fmt.Printf("\t\tId: %v\n\t\tPublicIp: %v\n\t\tUser: %v\n",
+				lr.InstanceId, lr.PublicIp, lr.User)
 		}
 	}
 
@@ -230,7 +230,7 @@ func sshCommon(canLaunch bool, args []string) error {
 			sshOpts.instanceId)
 	}
 
-	keyFile, err := aws.GetLocalKeyFile(ctx)
+	keyFile, err := aws.GetLocalDefaultKeyFile(ctx)
 	if err != nil {
 		return fmt.Errorf("Failed to find local key: %w\n", err)
 	}

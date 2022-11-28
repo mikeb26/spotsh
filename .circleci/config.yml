@@ -1,0 +1,69 @@
+# https://circleci.com/docs/2.0/configuration-reference
+version: 2.1
+orbs:
+  aws-cli: circleci/aws-cli@3.1.3
+
+# https://circleci.com/docs/2.0/configuration-reference/#jobs
+jobs:
+  build:
+    working_directory: ~/repo
+    # https://circleci.com/docs/2.0/configuration-reference/#docker-machine-macos-windows-executor
+    docker:
+      - image: bopmatic/build:latest
+    # https://circleci.com/docs/2.0/configuration-reference/#steps
+    steps:
+      - checkout
+      - restore_cache:
+          keys:
+            - go-mod-v4-{{ checksum "go.sum" }}
+      - run:
+          name: Install Dependencies
+          command: make vendor
+      - save_cache:
+          key: go-mod-v4-{{ checksum "go.sum" }}
+          paths:
+            - "/go/pkg/mod"
+      - run:
+          name: Build
+          command: |
+            if [ "$CIRCLE_TAG" != "" ]
+            then
+                rm version.txt
+                make version.txt
+            fi          
+            make build
+      - aws-cli/setup:
+          aws-access-key-id: AWS_ACCESS_KEY
+          aws-secret-access-key: AWS_ACCESS_SECRET
+          aws-region: AWS_REGION_NAME
+      - run:
+          name: Run tests
+          command: make unit-tests.xml
+      - store_test_results:
+          path: unit-tests.xml
+      - store_artifacts:
+          path: spotsh
+      - run:
+          name: Github release
+          command: |
+            PATH=$PATH:$HOME/go/bin
+            if [ "$CIRCLE_TAG" != "" ]
+            then
+                ghr -name "Spot Shell ($CIRCLE_TAG)" $CIRCLE_TAG spotsh
+            else
+                echo "Not releasing untagged commit"
+            fi
+
+# https://circleci.com/docs/2.0/configuration-reference/#workflows
+workflows:
+  version: 2
+  build-and-release:
+    jobs:
+      - build:
+          context:
+            - global
+          filters:
+            tags:
+              only: /^v.*/
+            branches:
+              only: main

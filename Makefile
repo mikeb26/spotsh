@@ -7,10 +7,22 @@ build: cmd/spotsh
 cmd/spotsh: FORCE
 	go build -o spotsh cmd/spotsh/main.go
 
+TESTPKGS=github.com/mikeb26/spotsh/internal github.com/mikeb26/spotsh/internal/aws
+
 .PHONY: test
 test:
-	cd internal; go test
-	cd internal/aws; go test
+	go test $(TESTPKGS)
+
+unit-tests.xml: FORCE
+	gotestsum --junitfile unit-tests.xml $(TESTPKGS)
+
+vendor: go.mod
+	go mod download
+	go mod vendor
+
+version.txt:
+	git describe --tags > version.txt
+	truncate -s -1 version.txt
 
 .PHONY: clean
 clean:

@@ -10,8 +10,8 @@ Available Commands:
   info                 List spot shell instances, security groups, and
                        available key pairs
   launch               Launch a new spot shell instance
-  ssh [<flags>]        ssh to an existing spot shell instance
-  terminate [<flags>]  Terminate an existing spot shell instance
+  ssh [<FLAGS>]        ssh to an existing spot shell instance
+  terminate [<FLAGS>]  Terminate an existing spot shell instance
   upgrade              Upgrade to the latest version of spotsh
   version              Print spotsh's version string
 
@@ -19,5 +19,21 @@ By default when command is not specified spotsh will attempt to ssh to
 an existing spot shell instance. If a spot shell instance does not
 exist, it will be created.
 
-Flags:
-  --instance-id <EC2_instance_id>
+FLAGS:                             | DEFAULT
+  --instance-id <EC2_instance_id>  | existing spotsh instance if running
+  --os <OPERATING_SYSTEM>          | amzn2
+  --ami <ami_id>                   | latest amzn2 AMI id
+  --key <keypair_name>             | spotsh.<your_aws_region>
+  --sgid <security_group_id>       | default VPC's default security group
+  --role <iam_role_name>           | none
+  --initcmd <initial_cmd_to_run>   | none
+  --type <instance_type>           | c5a.large
+  --spotprice <maximum_spot_price> | 0.08 which represents $0.08/hour
+
+OPERATING_SYSTEM:
+  When launching an instance the operating system to launch with can
+  be specified with the --os flag. The current list of supported
+  operating systems is below:
+
+    amzn2       - Amazon Linux 2
+    ubuntu22.04 - Ubuntu 22.04 LTS

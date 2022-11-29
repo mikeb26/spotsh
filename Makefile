@@ -27,7 +27,7 @@ cmd/spotsh/version.txt:
 
 .PHONY: clean
 clean:
-	rm -f spotsh
+	rm -f spotsh unit-tests.xml
 
 .PHONY: deps
 deps:

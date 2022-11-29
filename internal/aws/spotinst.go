@@ -79,12 +79,15 @@ type LaunchEc2SpotArgs struct {
 	InitCmd         string                   // optional; defaults to empty
 	InstanceType    types.InstanceType       // optional; defaults to c5a.large
 	MaxSpotPrice    string                   // optional; defaults to "0.08" (USD$/hour)
+	User            string                   // optional; defaults to Os's default user
 }
 
 type LaunchEc2SpotResult struct {
-	PublicIp   string
-	InstanceId string
-	User       string
+	PublicIp     string
+	InstanceId   string
+	User         string
+	LocalKeyFile string
+	InstanceType types.InstanceType
 }
 
 func LaunchEc2Spot(ctx context.Context,
@@ -158,6 +161,8 @@ func LaunchEc2Spot(ctx context.Context,
 		if err != nil {
 			return launchResult, err
 		}
+	} else if launchArgs.User == "" {
+		return launchResult, fmt.Errorf("User must be specified when ami id is specified")
 	}
 	sgId := launchArgs.SecurityGroupId
 	if sgId == "" {
@@ -170,11 +175,12 @@ func LaunchEc2Spot(ctx context.Context,
 	if iType == "" {
 		iType = defaultInstanceType
 	}
+	launchResult.InstanceType = iType
 	if launchArgs.Os != internal.OsNone {
 		idx := int(launchArgs.Os)
 		launchResult.User = instanceIdTab[idx].user
 	} else {
-		launchResult.User = "<unknown>"
+		launchResult.User = launchArgs.User
 	}
 	tagKey := defaultTagKey
 	tagVal := launchResult.User
@@ -281,6 +287,10 @@ func LookupEc2Spot(ctx context.Context) ([]LaunchEc2SpotResult, error) {
 	if err != nil {
 		return launchResults, err
 	}
+	keysResult, err := LookupKeys(ctx)
+	if err != nil {
+		return launchResults, err
+	}
 
 	for _, resv := range descOutput.Reservations {
 		for _, inst := range resv.Instances {
@@ -290,14 +300,24 @@ func LookupEc2Spot(ctx context.Context) ([]LaunchEc2SpotResult, error) {
 					continue
 				}
 
+				localKeyFile := ""
+				for _, keyItem := range keysResult.Keys {
+					if inst.KeyName != nil && keyItem.Name == *inst.KeyName {
+						localKeyFile = keyItem.LocalKeyFile
+						break
+					}
+				}
+
 				publicIp := ""
 				if inst.PublicIpAddress != nil {
 					publicIp = *inst.PublicIpAddress
 				}
 				launchResult := LaunchEc2SpotResult{
-					InstanceId: *inst.InstanceId,
-					PublicIp:   publicIp,
-					User:       *tag.Value,
+					InstanceId:   *inst.InstanceId,
+					PublicIp:     publicIp,
+					User:         *tag.Value,
+					LocalKeyFile: localKeyFile,
+					InstanceType: inst.InstanceType,
 				}
 
 				launchResults = append(launchResults, launchResult)

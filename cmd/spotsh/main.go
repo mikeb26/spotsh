@@ -19,6 +19,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/mikeb26/spotsh/internal"
 	"github.com/mikeb26/spotsh/internal/aws"
 )
 
@@ -30,20 +32,6 @@ var subCommandTab = map[string]func(args []string) error{
 	"terminate": terminateMain,
 	"version":   versionMain,
 	"upgrade":   upgradeMain,
-}
-
-type cmdOpts struct {
-	keyName      string
-	keyFile      string
-	instanceType string
-	spotPrice    float32
-	os           string
-	amiId        string
-	sgId         string
-	role         string
-	initCmd      string
-	instanceId   string
-	user         string
 }
 
 //go:embed help.txt
@@ -81,6 +69,11 @@ func infoMain(args []string) error {
 			fmt.Printf("\tInstance[%v]:\n", idx)
 			fmt.Printf("\t\tId: %v\n\t\tPublicIp: %v\n\t\tUser: %v\n",
 				lr.InstanceId, lr.PublicIp, lr.User)
+			if lr.LocalKeyFile == "" {
+				lr.LocalKeyFile = "<not present>"
+			}
+			fmt.Printf("\t\tType: %v\n", lr.InstanceType)
+			fmt.Printf("\t\tLocalKeyFile: %v\n", lr.LocalKeyFile)
 		}
 	}
 
@@ -125,11 +118,45 @@ func infoMain(args []string) error {
 }
 
 func launchMain(args []string) error {
+	launchArgs := &aws.LaunchEc2SpotArgs{}
+
+	var os string
+	var iType string
+
+	f := flag.NewFlagSet("spotsh launch", flag.ContinueOnError)
+	f.StringVar(&os, "os", "", "Operating System; e.g. amzn2")
+	f.StringVar(&launchArgs.AmiId, "ami", "", "Amazon Machine Image id")
+	f.StringVar(&launchArgs.User, "user", "", "username to ssh as")
+	f.StringVar(&launchArgs.KeyPair, "key", "", "EC2 keypair")
+	f.StringVar(&launchArgs.SecurityGroupId, "sgid", "", "Security Group Id")
+	f.StringVar(&launchArgs.AttachRoleName, "role", "", "IAM Role to attach to instance")
+	f.StringVar(&launchArgs.InitCmd, "initcmd", "", "Initial command to run in the instance")
+	f.StringVar(&iType, "type", "", "Instance type")
+	f.StringVar(&launchArgs.MaxSpotPrice, "spotprice", "", "Maximum spot price to pay")
+	err := f.Parse(args)
+	if err != nil {
+		return err
+	}
+
+	launchArgs.Os = internal.OsFromString(os)
+	launchArgs.InstanceType = types.InstanceType(iType)
+
+	if launchArgs.AmiId != "" {
+		if os != "" {
+			return fmt.Errorf("--ami and --os are mutually exclusive; choose one but not both flags simultaneously")
+		}
+		if launchArgs.User == "" {
+			return fmt.Errorf("--user must be specified when launching by AMI id so that spotsh knows which user to ssh as in the future")
+		}
+	} else {
+		if launchArgs.User != "" {
+			return fmt.Errorf("--user is automatically determined by default or when --os is specified")
+		}
+	}
+
 	ctx := context.Background()
 
-	var launchArgs aws.LaunchEc2SpotArgs
-
-	launchResult, err := aws.LaunchEc2Spot(ctx, &launchArgs)
+	launchResult, err := aws.LaunchEc2Spot(ctx, launchArgs)
 	if err != nil {
 		return err
 	}
@@ -241,11 +268,12 @@ func sshCommon(canLaunch bool, args []string) error {
 			sshOpts.instanceId)
 	}
 
-	keyFile, err := aws.GetLocalDefaultKeyFile(ctx)
-	if err != nil {
-		return fmt.Errorf("Failed to find local key: %w\n", err)
+	if selectedResult.LocalKeyFile == "" {
+		return fmt.Errorf("Could not find local ssh key for instance w/ id %v",
+			sshOpts.instanceId)
 	}
-	sshArgs := []string{"ssh", "-i", keyFile, "-o", "StrictHostKeyChecking no",
+	sshArgs := []string{"ssh", "-i", selectedResult.LocalKeyFile, "-o",
+		"StrictHostKeyChecking=no",
 		selectedResult.User + "@" + selectedResult.PublicIp}
 	fmt.Printf("exec %v\n", sshArgs)
 

@@ -37,6 +37,7 @@ Available Commands:
   launch               Launch a new spot shell instance
   ssh [<flags>]        ssh to an existing spot shell instance
   terminate [<flags>]  Terminate an existing spot shell instance
+  upgrade              Upgrade to the latest version of spotsh
   version              Print spotsh's version string
 
 By default when command is not specified spotsh will attempt to ssh to

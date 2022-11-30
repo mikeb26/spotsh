@@ -6,15 +6,18 @@ Usage:
   spotsh [<command>]
 
 Available Commands:
-  config               Set spotsh default preferences
-  help                 This help screen
-  info                 List spot shell instances, security groups, and
-                       available key pairs
-  launch               Launch a new spot shell instance
-  ssh [<FLAGS>]        ssh to an existing spot shell instance
-  terminate [<FLAGS>]  Terminate an existing spot shell instance
-  upgrade              Upgrade to the latest version of spotsh
-  version              Print spotsh's version string
+  config                      Set spotsh default preferences
+  help                        This help screen
+  info                        List spot shell instances, security
+                              groups, and available key pairs
+  launch                      Launch a new spot shell instance
+  ssh [<FLAGS>]               ssh to an existing spot shell instance
+  scp [<FLAGS>] -- <SCP_ARGS> scp to/from an existing spot shell
+                              instance
+     terminate [<FLAGS>]      Terminate an existing spot shell
+                              instance
+  upgrade                     Upgrade to the latest version of spotsh
+  version                     Print spotsh's version string
 
 By default when command is not specified spotsh will attempt to ssh to
 an existing spot shell instance. If a spot shell instance does not
@@ -38,3 +41,18 @@ OPERATING_SYSTEM:
 
     amzn2       - Amazon Linux 2
     ubuntu22.04 - Ubuntu 22.04 LTS
+
+SCP_ARGS:
+  With 1 exception SCP_ARGS are passed directly to scp. See SCP(1) for
+  more detail. The exception is user@host replacement. spotsh defines
+  a special variable, {s}, which can be used in any SCP_ARGS. Spot
+  shell will replace all instances of {s} with the spot instance's
+  user and public ip address before passing the argument to scp. For
+  example, to copy a local file /tmp/foo to the spot instance:
+  
+    $ spotsh scp -- /tmp/foo {s}:/tmp/foo
+
+  To recursively copy the contents of /var/log from the spot instance
+  locally:
+  
+    $ spotsh scp -- -rp {s}:/var/log /tmp/spotlogs

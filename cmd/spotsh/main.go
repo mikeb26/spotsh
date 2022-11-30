@@ -36,6 +36,7 @@ var subCommandTab = map[string]func(args []string) error{
 	"help":      helpMain,
 	"info":      infoMain,
 	"launch":    launchMain,
+	"scp":       scpMain,
 	"ssh":       sshMain,
 	"terminate": terminateMain,
 	"version":   versionMain,
@@ -233,16 +234,48 @@ func sshMain(args []string) error {
 	return sshCommon(false, args)
 }
 
-func sshCommon(canLaunch bool, args []string) error {
+func scpMain(args []string) error {
+	const SpotHostVar = "{s}"
+
+	selectedResult, err := selectOrLaunchCommon("spotsh scp", false, &args)
+	if err != nil {
+		return err
+	}
+
+	// replace all instances of {s} in remaining args with user@ip
+	userAtPublicIp := selectedResult.User + "@" + selectedResult.PublicIp
+	for idx, _ := range args {
+		args[idx] = strings.ReplaceAll(args[idx], SpotHostVar, userAtPublicIp)
+	}
+
+	scpArgs := []string{"scp", "-i", selectedResult.LocalKeyFile, "-o",
+		"StrictHostKeyChecking=no",
+	}
+	if len(args) > 0 {
+		scpArgs = append(scpArgs, args...)
+	}
+	fmt.Printf("exec %v\n", scpArgs)
+
+	err = syscall.Exec("/usr/bin/scp", scpArgs, nil)
+	if err != nil {
+		return fmt.Errorf("Failed to scp: %w\n", err)
+	}
+
+	return nil
+}
+
+func selectOrLaunchCommon(cmdName string, canLaunch bool,
+	args *[]string) (*aws.LaunchEc2SpotResult, error) {
+
 	sshOpts := struct {
 		instanceId string
 	}{}
 
-	f := flag.NewFlagSet("spotsh ssh", flag.ContinueOnError)
+	f := flag.NewFlagSet(cmdName, flag.ContinueOnError)
 	f.StringVar(&sshOpts.instanceId, "instance-id", "", "EC2 instance id")
-	err := f.Parse(args)
+	err := f.Parse(*args)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	ctx := context.Background()
@@ -252,7 +285,7 @@ func sshCommon(canLaunch bool, args []string) error {
 		if canLaunch {
 			launchArgs, err := newLaunchArgsFromPrefs()
 			if err != nil {
-				return err
+				return nil, err
 			}
 			var newLaunchResult aws.LaunchEc2SpotResult
 
@@ -263,7 +296,7 @@ func sshCommon(canLaunch bool, args []string) error {
 		}
 	}
 	if err != nil {
-		return fmt.Errorf("Failed to lookup/launch instance: %w", err)
+		return nil, fmt.Errorf("Failed to lookup/launch instance: %w", err)
 	}
 
 	if len(launchResults) > 1 && sshOpts.instanceId == "" {
@@ -272,7 +305,7 @@ func sshCommon(canLaunch bool, args []string) error {
 			errStr = fmt.Sprintf("%v\n\t%v:%v", errStr, lr.InstanceId,
 				lr.PublicIp)
 		}
-		return fmt.Errorf("%v", errStr)
+		return nil, fmt.Errorf("%v", errStr)
 	}
 
 	var selectedResult *aws.LaunchEc2SpotResult
@@ -284,17 +317,30 @@ func sshCommon(canLaunch bool, args []string) error {
 	}
 
 	if selectedResult == nil {
-		return fmt.Errorf("Could not find spotssh instance w/ id %v",
+		return nil, fmt.Errorf("Could not find spotssh instance w/ id %v",
 			sshOpts.instanceId)
 	}
-
 	if selectedResult.LocalKeyFile == "" {
-		return fmt.Errorf("Could not find local ssh key for instance w/ id %v",
+		return nil, fmt.Errorf("Could not find local ssh key for instance w/ id %v",
 			selectedResult.InstanceId)
 	}
+
+	*args = f.Args()
+	return selectedResult, nil
+}
+
+func sshCommon(canLaunch bool, args []string) error {
+	selectedResult, err := selectOrLaunchCommon("spotsh ssh", canLaunch, &args)
+	if err != nil {
+		return err
+	}
+
 	sshArgs := []string{"ssh", "-i", selectedResult.LocalKeyFile, "-o",
 		"StrictHostKeyChecking=no",
 		selectedResult.User + "@" + selectedResult.PublicIp}
+	if len(args) > 0 {
+		sshArgs = append(sshArgs, args...)
+	}
 	fmt.Printf("exec %v\n", sshArgs)
 
 	err = syscall.Exec("/usr/bin/ssh", sshArgs, nil)

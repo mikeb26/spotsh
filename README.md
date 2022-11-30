@@ -22,7 +22,6 @@ mv spotsh $HOME/bin
 ## Usage
 
 ```bash
-spotsh help
 spotsh - Spot Shell
 
   Utility for creating/terminating/ssh'ing to an EC2 spot instance
@@ -31,25 +30,27 @@ Usage:
   spotsh [<command>]
 
 Available Commands:
-  config                      Set spotsh default preferences
-  help                        This help screen
-  info                        List spot shell instances, security
-                              groups, and available key pairs
-  launch                      Launch a new spot shell instance
-  ssh [<FLAGS>]               ssh to an existing spot shell instance
-  scp [<FLAGS>] -- <SCP_ARGS> scp to/from an existing spot shell
-                              instance
-  terminate [<FLAGS>]         Terminate an existing spot shell
-                              instance
-  upgrade                     Upgrade to the latest version of spotsh
-  version                     Print spotsh's version string
+  config                         Set spotsh default preferences
+  help                           This help screen
+  info                           List spot shell instances, security
+                                 groups, and available key pairs
+  launch [<LAUNCHFLAGS>]         Launch a new spot shell instance
+  ssh [<SSHFLAGS>]               ssh to an existing spot shell instance
+  scp [<SSHFLAGS>] -- <SCP_ARGS> scp to/from an existing spot shell
+                                 instance
+  terminate [<SSHFLAGS>]         Terminate an existing spot shell
+                                 instance
+  upgrade                        Upgrade to the latest version of spotsh
+  version                        Print spotsh's version string
 
 By default when command is not specified spotsh will attempt to ssh to
 an existing spot shell instance. If a spot shell instance does not
 exist, it will be created.
 
-FLAGS:                             | DEFAULT
+SSHFLAGS:                          | DEFAULT
   --instance-id <EC2_instance_id>  | existing spotsh instance if running
+
+LAUNCHFLAGS:                       | DEFAULT
   --os <OPERATING_SYSTEM>          | amzn2
   --ami <ami_id>                   | latest amzn2 AMI id
   --key <keypair_name>             | spotsh.<your_aws_region>

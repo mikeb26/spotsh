@@ -39,7 +39,7 @@ Available Commands:
   ssh [<FLAGS>]               ssh to an existing spot shell instance
   scp [<FLAGS>] -- <SCP_ARGS> scp to/from an existing spot shell
                               instance
-     terminate [<FLAGS>]      Terminate an existing spot shell
+  terminate [<FLAGS>]         Terminate an existing spot shell
                               instance
   upgrade                     Upgrade to the latest version of spotsh
   version                     Print spotsh's version string

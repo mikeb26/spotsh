@@ -58,6 +58,7 @@ FLAGS:                             | DEFAULT
   --initcmd <initial_cmd_to_run>   | none
   --type <instance_type>           | c5a.large
   --spotprice <maximum_spot_price> | 0.08 which represents $0.08/hour
+  --user <username_to_ssh_as>      | os's default user
 
 OPERATING_SYSTEM:
   When launching an instance the operating system to launch with can

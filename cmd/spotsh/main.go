@@ -137,7 +137,7 @@ func launchMain(args []string) error {
 	var iType string
 
 	f := flag.NewFlagSet("spotsh launch", flag.ContinueOnError)
-	f.StringVar(&os, "os", launchArgs.Os.String(), "Operating System; e.g. amzn2")
+	f.StringVar(&os, "os", "", "Operating System; e.g. amzn2")
 	f.StringVar(&launchArgs.AmiId, "ami", launchArgs.AmiId,
 		"Amazon Machine Image id")
 	f.StringVar(&launchArgs.User, "user", launchArgs.User, "username to ssh as")
@@ -156,7 +156,6 @@ func launchMain(args []string) error {
 		return err
 	}
 
-	launchArgs.Os = internal.OsFromString(os)
 	launchArgs.InstanceType = types.InstanceType(iType)
 
 	if launchArgs.AmiId != "" {
@@ -167,6 +166,9 @@ func launchMain(args []string) error {
 			return fmt.Errorf("--user must be specified when launching by AMI id so that spotsh knows which user to ssh as in the future")
 		}
 	} else {
+		if os != "" {
+			launchArgs.Os = internal.OsFromString(os)
+		}
 		if launchArgs.User != "" {
 			return fmt.Errorf("--user is automatically determined by default or when --os is specified")
 		}

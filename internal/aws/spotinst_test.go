@@ -14,16 +14,16 @@ import (
 )
 
 func TestInstanceIdTab(t *testing.T) {
-	if len(instanceIdTab) < int(internal.OsInvalid) {
-		t.Fatalf("instanceIdTab is missing OS entry")
+	if len(imageIdTab) < int(internal.OsInvalid) {
+		t.Fatalf("imageIdTab is missing OS entry")
 	}
 
 	for idx := 0; idx < int(internal.OsInvalid); idx++ {
 		os := internal.OperatingSystem(idx)
 
-		if instanceIdTab[idx].os != os {
-			t.Fatalf("instanceIdTab entry mismatch expecting %v have %v", os,
-				instanceIdTab[idx].os)
+		if imageIdTab[idx].os != os {
+			t.Fatalf("imageIdTab entry mismatch expecting %v have %v", os,
+				imageIdTab[idx].os)
 		}
 	}
 }

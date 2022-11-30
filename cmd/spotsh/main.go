@@ -24,6 +24,14 @@ import (
 	"github.com/mikeb26/spotsh/internal/aws"
 )
 
+type Prefs struct {
+	Os            string `json:",omitempty"`
+	InstanceType  string `json:",omitempty"`
+	KeyPair       string `json:",omitempty"`
+	SecurityGroup string `json:",omitempty"`
+	MaxSpotPrice  string `json:",omitempty"`
+}
+
 var subCommandTab = map[string]func(args []string) error{
 	"help":      helpMain,
 	"info":      infoMain,
@@ -32,6 +40,7 @@ var subCommandTab = map[string]func(args []string) error{
 	"terminate": terminateMain,
 	"version":   versionMain,
 	"upgrade":   upgradeMain,
+	"config":    configMain,
 }
 
 //go:embed help.txt
@@ -118,22 +127,30 @@ func infoMain(args []string) error {
 }
 
 func launchMain(args []string) error {
-	launchArgs := &aws.LaunchEc2SpotArgs{}
+	launchArgs, err := newLaunchArgsFromPrefs()
+	if err != nil {
+		return err
+	}
 
 	var os string
 	var iType string
 
 	f := flag.NewFlagSet("spotsh launch", flag.ContinueOnError)
-	f.StringVar(&os, "os", "", "Operating System; e.g. amzn2")
-	f.StringVar(&launchArgs.AmiId, "ami", "", "Amazon Machine Image id")
-	f.StringVar(&launchArgs.User, "user", "", "username to ssh as")
-	f.StringVar(&launchArgs.KeyPair, "key", "", "EC2 keypair")
-	f.StringVar(&launchArgs.SecurityGroupId, "sgid", "", "Security Group Id")
-	f.StringVar(&launchArgs.AttachRoleName, "role", "", "IAM Role to attach to instance")
-	f.StringVar(&launchArgs.InitCmd, "initcmd", "", "Initial command to run in the instance")
-	f.StringVar(&iType, "type", "", "Instance type")
-	f.StringVar(&launchArgs.MaxSpotPrice, "spotprice", "", "Maximum spot price to pay")
-	err := f.Parse(args)
+	f.StringVar(&os, "os", launchArgs.Os.String(), "Operating System; e.g. amzn2")
+	f.StringVar(&launchArgs.AmiId, "ami", launchArgs.AmiId,
+		"Amazon Machine Image id")
+	f.StringVar(&launchArgs.User, "user", launchArgs.User, "username to ssh as")
+	f.StringVar(&launchArgs.KeyPair, "key", launchArgs.KeyPair, "EC2 keypair")
+	f.StringVar(&launchArgs.SecurityGroupId, "sgid", launchArgs.SecurityGroupId,
+		"Security Group Id")
+	f.StringVar(&launchArgs.AttachRoleName, "role", launchArgs.AttachRoleName,
+		"IAM Role to attach to instance")
+	f.StringVar(&launchArgs.InitCmd, "initcmd", launchArgs.InitCmd,
+		"Initial command to run in the instance")
+	f.StringVar(&iType, "type", string(launchArgs.InstanceType), "Instance type")
+	f.StringVar(&launchArgs.MaxSpotPrice, "spotprice", launchArgs.MaxSpotPrice,
+		"Maximum spot price to pay")
+	err = f.Parse(args)
 	if err != nil {
 		return err
 	}
@@ -233,10 +250,13 @@ func sshCommon(canLaunch bool, args []string) error {
 	launchResults, err := aws.LookupEc2Spot(ctx)
 	if err == nil && len(launchResults) == 0 {
 		if canLaunch {
-			var launchArgs aws.LaunchEc2SpotArgs
+			launchArgs, err := newLaunchArgsFromPrefs()
+			if err != nil {
+				return err
+			}
 			var newLaunchResult aws.LaunchEc2SpotResult
 
-			newLaunchResult, err = aws.LaunchEc2Spot(ctx, &launchArgs)
+			newLaunchResult, err = aws.LaunchEc2Spot(ctx, launchArgs)
 			launchResults = append(launchResults, newLaunchResult)
 		} else {
 			err = fmt.Errorf("No spotssh instances running")
@@ -270,7 +290,7 @@ func sshCommon(canLaunch bool, args []string) error {
 
 	if selectedResult.LocalKeyFile == "" {
 		return fmt.Errorf("Could not find local ssh key for instance w/ id %v",
-			sshOpts.instanceId)
+			selectedResult.InstanceId)
 	}
 	sshArgs := []string{"ssh", "-i", selectedResult.LocalKeyFile, "-o",
 		"StrictHostKeyChecking=no",
@@ -430,6 +450,229 @@ func checkAndPrintUpgradeWarning() bool {
 		latestVer)
 
 	return true
+}
+
+func getConfigDir() (string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("Could not find user home directory: %w", err)
+	}
+
+	return filepath.Join(homeDir, ".config", "spotsh"), nil
+}
+
+func getConfigPath() (string, error) {
+	configDir, err := getConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(configDir, "prefs.json"), nil
+}
+
+func loadConfigPrefs(configFilePath string, prefs *Prefs) error {
+	configContent, err := ioutil.ReadFile(configFilePath)
+	if os.IsNotExist(err) {
+		// defaults
+		return nil
+	}
+
+	return json.Unmarshal(configContent, prefs)
+}
+
+func storeConfigPrefs(configFilePath string, prefs *Prefs) error {
+	configContent, err := json.Marshal(prefs)
+	if err != nil {
+		return err
+	}
+
+	return ioutil.WriteFile(configFilePath, configContent, 0600)
+}
+
+func newLaunchArgsFromPrefs() (*aws.LaunchEc2SpotArgs, error) {
+	configFilePath, err := getConfigPath()
+	if err != nil {
+		return nil, err
+	}
+
+	prefs := &Prefs{}
+	err = loadConfigPrefs(configFilePath, prefs)
+	if err != nil {
+		return nil, err
+	}
+
+	launchArgs := &aws.LaunchEc2SpotArgs{
+		Os:              internal.OsFromString(prefs.Os),
+		KeyPair:         prefs.KeyPair,
+		SecurityGroupId: prefs.SecurityGroup,
+		InstanceType:    types.InstanceType(prefs.InstanceType),
+		MaxSpotPrice:    prefs.MaxSpotPrice,
+	}
+
+	return launchArgs, nil
+}
+
+func configMain(args []string) error {
+	configDir, err := getConfigDir()
+	if err != nil {
+		return err
+	}
+	err = os.MkdirAll(configDir, 0700)
+	if err != nil {
+		return fmt.Errorf("Could not create config directory %v: %w",
+			configDir, err)
+	}
+	configFilePath, err := getConfigPath()
+	if err != nil {
+		return err
+	}
+
+	prefs := &Prefs{}
+	err = loadConfigPrefs(configFilePath, prefs)
+	if err != nil {
+		return err
+	}
+
+	os := aws.DefaultOperatingSystem
+	if prefs.Os != "" {
+		os = internal.OsFromString(prefs.Os)
+	}
+
+	fmt.Printf("Setting spotsh preferences...\n")
+	// set os pref
+	fmt.Printf("Default operating system: \"%v\" (%v) Change? (Y/N) [N]: ",
+		os, aws.GetImageDesc(os))
+	changePref := "N"
+	fmt.Scanf("%s", &changePref)
+	changePref = strings.ToUpper(strings.TrimSpace(changePref))
+	if changePref[0] == 'Y' {
+		fmt.Printf("  Available OS's: \n")
+		for _, osTmp := range os.Values() {
+			fmt.Printf("    \"%v\" (%v)\n", osTmp, aws.GetImageDesc(osTmp))
+		}
+		fmt.Printf("  Enter preferred default operating system: ")
+		newOsStr := ""
+		fmt.Scanf("%s", &newOsStr)
+		newOsStr = strings.TrimSpace(newOsStr)
+		newOsStr = strings.Split(newOsStr, " ")[0]
+		newOsStr = strings.Trim(newOsStr, "\"")
+		os = internal.OsFromString(newOsStr)
+		if os == internal.OsInvalid {
+			return fmt.Errorf("No such os \"%v\" supported", newOsStr)
+		}
+		prefs.Os = newOsStr
+	}
+
+	// set itype pref
+	iType := aws.DefaultInstanceType
+	if prefs.InstanceType != "" {
+		iType = types.InstanceType(prefs.InstanceType)
+	}
+	fmt.Printf("Default instance type: %v Change? (Y/N) [N]: ", iType)
+	changePref = "N"
+	fmt.Scanf("%s", &changePref)
+	changePref = strings.ToUpper(strings.TrimSpace(changePref))
+	if changePref[0] == 'Y' {
+		fmt.Printf("  see https://aws.amazon.com/ec2/instance-types/ for a complete list\n")
+		fmt.Printf("  Enter preferred default instance type: ")
+		newItype := ""
+		fmt.Scanf("%s", &newItype)
+		newItype = strings.TrimSpace(newItype)
+		newItype = strings.Split(newItype, " ")[0]
+		prefs.InstanceType = newItype
+	}
+
+	// set key pref
+	ctx := context.Background()
+	keyPair, err := aws.GetDefaultKeyName(ctx)
+	if err != nil {
+		return err
+	}
+	if prefs.KeyPair != "" {
+		keyPair = prefs.KeyPair
+	}
+	fmt.Printf("Default keypair: %v Change? (Y/N) [N]: ", keyPair)
+	changePref = "N"
+	fmt.Scanf("%s", &changePref)
+	changePref = strings.ToUpper(strings.TrimSpace(changePref))
+	if changePref[0] == 'Y' {
+		existingKeys, err := aws.LookupKeys(ctx)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("  Available keypairs: \n")
+		for _, existingKey := range existingKeys.Keys {
+			if existingKey.LocalKeyFile == "" {
+				existingKey.LocalKeyFile = "<not present>"
+			}
+			fmt.Printf("    %v (%v)\n", existingKey.Name,
+				existingKey.LocalKeyFile)
+		}
+		fmt.Printf("  Enter preferred default keypair: ")
+		newKey := ""
+		fmt.Scanf("%s", &newKey)
+		newKey = strings.TrimSpace(newKey)
+		newKey = strings.Split(newKey, " ")[0]
+		prefs.KeyPair = newKey
+	}
+
+	// set security group pref
+	sgId, err := aws.GetDefaultSecurityGroupId(ctx)
+	if err != nil {
+		sgId = "<none>"
+	}
+	if prefs.SecurityGroup != "" {
+		sgId = prefs.SecurityGroup
+	}
+	fmt.Printf("Default security group id: %v Change? (Y/N) [N]: ", sgId)
+	changePref = "N"
+	fmt.Scanf("%s", &changePref)
+	changePref = strings.ToUpper(strings.TrimSpace(changePref))
+	if changePref[0] == 'Y' {
+		existingSgs, err := aws.LookupVpcSecurityGroups(ctx)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("  Available Security Groups: \n")
+		for _, vpc := range existingSgs.Vpcs {
+			if vpc.Default {
+				fmt.Printf("    Vpc %v (default):\n", vpc.Id)
+			} else {
+				fmt.Printf("    Vpc %v:\n", vpc.Id)
+			}
+			for _, sg := range vpc.Sgs {
+				fmt.Printf("      %v\n", sg.Id)
+			}
+		}
+		fmt.Printf("  Enter preferred default security group: ")
+		newSgId := ""
+		fmt.Scanf("%s", &newSgId)
+		newSgId = strings.TrimSpace(newSgId)
+		newSgId = strings.Split(newSgId, " ")[0]
+		prefs.SecurityGroup = newSgId
+	}
+
+	// set max spot price pref
+	spotPrice := aws.DefaultMaxSpotPrice
+	if prefs.MaxSpotPrice != "" {
+		spotPrice = prefs.MaxSpotPrice
+	}
+	fmt.Printf("Default max spot price: $%v/hour Change? (Y/N) [N]: ",
+		spotPrice)
+	changePref = "N"
+	fmt.Scanf("%s", &changePref)
+	changePref = strings.ToUpper(strings.TrimSpace(changePref))
+	if changePref[0] == 'Y' {
+		fmt.Printf("  Enter preferred max spot price: ")
+		newSpotPrice := ""
+		fmt.Scanf("%s", &newSpotPrice)
+		newSpotPrice = strings.TrimSpace(newSpotPrice)
+		newSpotPrice = strings.Trim(newSpotPrice, "$")
+		newSpotPrice = strings.Split(newSpotPrice, " ")[0]
+		newSpotPrice = strings.Split(newSpotPrice, "/")[0]
+		prefs.MaxSpotPrice = newSpotPrice
+	}
+
+	return storeConfigPrefs(configFilePath, prefs)
 }
 
 func main() {

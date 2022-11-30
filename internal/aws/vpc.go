@@ -12,6 +12,16 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 )
 
+func GetDefaultSecurityGroupId(ctx context.Context) (string, error) {
+	awsCfg, err := config.LoadDefaultConfig(ctx)
+	if err != nil {
+		return "", err
+	}
+	ec2Client := ec2.NewFromConfig(awsCfg)
+
+	return getDefaultSecurityGroupId(ctx, ec2Client)
+}
+
 func getDefaultSecurityGroupId(ctx context.Context,
 	ec2Client *ec2.Client) (string, error) {
 

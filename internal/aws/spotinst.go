@@ -19,31 +19,40 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 )
 
-const defaultMaxSpotPrice = "0.08"
-const defaultInstanceType = types.InstanceTypeC5aLarge
-const defaultOperatingSystem = internal.AmazonLinux2
+const DefaultMaxSpotPrice = "0.08"
+const DefaultInstanceType = types.InstanceTypeC5aLarge
+const DefaultOperatingSystem = internal.AmazonLinux2
 
-type instanceIdEntry struct {
+type imageIdEntry struct {
 	os       internal.OperatingSystem
 	desc     string
 	ssmParam string
 	user     string
 }
 
-var instanceIdTab = []instanceIdEntry{
-	internal.OsNone: instanceIdEntry{},
-	internal.Ubuntu22_04: instanceIdEntry{
+var imageIdTab = []imageIdEntry{
+	internal.OsNone: imageIdEntry{},
+	internal.Ubuntu22_04: imageIdEntry{
 		os:       internal.Ubuntu22_04,
 		desc:     "Ubuntu 22.04 LTS",
 		ssmParam: "/aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp2/ami-id",
 		user:     "ubuntu",
 	},
-	internal.AmazonLinux2: instanceIdEntry{
+	internal.AmazonLinux2: imageIdEntry{
 		os:       internal.AmazonLinux2,
 		desc:     "Amazon Linux 2",
 		ssmParam: "/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2",
 		user:     "ec2-user",
 	},
+}
+
+func GetImageDesc(os internal.OperatingSystem) string {
+	idx := uint64(os)
+	if os == internal.OsNone || os >= internal.OsInvalid {
+		idx = uint64(DefaultOperatingSystem)
+	}
+
+	return imageIdTab[idx].desc
 }
 
 func getLatestAmiId(ctx context.Context, awsCfg aws.Config,
@@ -53,10 +62,10 @@ func getLatestAmiId(ctx context.Context, awsCfg aws.Config,
 		return "", fmt.Errorf("Must specify os type to determine latest ami")
 	}
 	idx := uint64(os)
-	if idx > uint64(internal.OsInvalid) {
+	if idx >= uint64(internal.OsInvalid) {
 		return "", fmt.Errorf("No such os index %v", idx)
 	}
-	idEntry := &instanceIdTab[idx]
+	idEntry := &imageIdTab[idx]
 
 	ssmClient := ssm.NewFromConfig(awsCfg)
 	getParamInput := &ssm.GetParameterInput{
@@ -106,7 +115,7 @@ func LaunchEc2Spot(ctx context.Context,
 
 	spotPrice := launchArgs.MaxSpotPrice
 	if spotPrice == "" {
-		spotPrice = defaultMaxSpotPrice
+		spotPrice = DefaultMaxSpotPrice
 	}
 	spotOpts := &types.SpotMarketOptions{
 		InstanceInterruptionBehavior: types.InstanceInterruptionBehaviorTerminate,
@@ -144,6 +153,17 @@ func LaunchEc2Spot(ctx context.Context,
 		keyPair := getKeyName(awsCfg)
 		keyName = &keyPair
 	}
+	keysResult, err := LookupKeys(ctx)
+	if err != nil {
+		return launchResult, err
+	}
+	launchResult.LocalKeyFile = ""
+	for _, keyItem := range keysResult.Keys {
+		if *keyName == keyItem.Name {
+			launchResult.LocalKeyFile = keyItem.LocalKeyFile
+			break
+		}
+	}
 	var initCmdEncoded *string
 	if launchArgs.InitCmd != "" {
 		initCmdEncodedActual :=
@@ -155,7 +175,7 @@ func LaunchEc2Spot(ctx context.Context,
 	amiId := launchArgs.AmiId
 	if amiId == "" {
 		if launchArgs.Os == internal.OsNone {
-			launchArgs.Os = defaultOperatingSystem
+			launchArgs.Os = DefaultOperatingSystem
 		}
 		amiId, err = getLatestAmiId(ctx, awsCfg, launchArgs.Os)
 		if err != nil {
@@ -173,12 +193,12 @@ func LaunchEc2Spot(ctx context.Context,
 	}
 	iType := launchArgs.InstanceType
 	if iType == "" {
-		iType = defaultInstanceType
+		iType = DefaultInstanceType
 	}
 	launchResult.InstanceType = iType
 	if launchArgs.Os != internal.OsNone {
 		idx := int(launchArgs.Os)
-		launchResult.User = instanceIdTab[idx].user
+		launchResult.User = imageIdTab[idx].user
 	} else {
 		launchResult.User = launchArgs.User
 	}

@@ -26,6 +26,16 @@ func getKeyName(awsCfg aws.Config) string {
 	return fmt.Sprintf("spotsh.%v", awsCfg.Region)
 }
 
+func GetDefaultKeyName(ctx context.Context) (string, error) {
+
+	awsCfg, err := config.LoadDefaultConfig(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	return getKeyName(awsCfg), nil
+}
+
 func getSshRootDir() (string, error) {
 	homedir, err := os.UserHomeDir()
 	if err != nil {

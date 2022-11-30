@@ -42,6 +42,13 @@ func OsFromString(osStr string) OperatingSystem {
 	return os
 }
 
+func (os OperatingSystem) Values() []OperatingSystem {
+	return []OperatingSystem{
+		Ubuntu22_04,
+		AmazonLinux2,
+	}
+}
+
 func init() {
 	for idx, osStr := range osTab {
 		osMap[osStr] = OperatingSystem(idx)

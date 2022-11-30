@@ -31,6 +31,7 @@ Usage:
   spotsh [<command>]
 
 Available Commands:
+  config               Set spotsh default preferences
   help                 This help screen
   info                 List spot shell instances, security groups, and
                        available key pairs

@@ -25,11 +25,12 @@ import (
 )
 
 type Prefs struct {
-	Os            string `json:",omitempty"`
-	InstanceType  string `json:",omitempty"`
-	KeyPair       string `json:",omitempty"`
-	SecurityGroup string `json:",omitempty"`
-	MaxSpotPrice  string `json:",omitempty"`
+	Os               string `json:",omitempty"`
+	InstanceType     string `json:",omitempty"`
+	KeyPair          string `json:",omitempty"`
+	SecurityGroup    string `json:",omitempty"`
+	MaxSpotPrice     string `json:",omitempty"`
+	RootVolSizeInGiB int32  `json:",omitempty"`
 }
 
 var subCommandTab = map[string]func(args []string) error{
@@ -549,11 +550,12 @@ func newLaunchArgsFromPrefs() (*aws.LaunchEc2SpotArgs, error) {
 	}
 
 	launchArgs := &aws.LaunchEc2SpotArgs{
-		Os:              internal.OsFromString(prefs.Os),
-		KeyPair:         prefs.KeyPair,
-		SecurityGroupId: prefs.SecurityGroup,
-		InstanceType:    types.InstanceType(prefs.InstanceType),
-		MaxSpotPrice:    prefs.MaxSpotPrice,
+		Os:               internal.OsFromString(prefs.Os),
+		KeyPair:          prefs.KeyPair,
+		SecurityGroupId:  prefs.SecurityGroup,
+		InstanceType:     types.InstanceType(prefs.InstanceType),
+		MaxSpotPrice:     prefs.MaxSpotPrice,
+		RootVolSizeInGiB: prefs.RootVolSizeInGiB,
 	}
 
 	return launchArgs, nil
@@ -718,6 +720,23 @@ func configMain(args []string) error {
 		newSpotPrice = strings.Split(newSpotPrice, " ")[0]
 		newSpotPrice = strings.Split(newSpotPrice, "/")[0]
 		prefs.MaxSpotPrice = newSpotPrice
+	}
+
+	// set root vol size pref
+	rootVolSize := aws.DefaultRootVolSizeInGiB
+	if prefs.RootVolSizeInGiB != 0 {
+		rootVolSize = prefs.RootVolSizeInGiB
+	}
+	fmt.Printf("Default root vol size: %v GiB Change? (Y/N) [N]: ",
+		rootVolSize)
+	changePref = "N"
+	fmt.Scanf("%s", &changePref)
+	changePref = strings.ToUpper(strings.TrimSpace(changePref))
+	if changePref[0] == 'Y' {
+		fmt.Printf("  Enter preferred root vol size in GiB: ")
+		newRootVolSize := int32(0)
+		fmt.Scanf("%d", &newRootVolSize)
+		prefs.RootVolSizeInGiB = newRootVolSize
 	}
 
 	return storeConfigPrefs(configFilePath, prefs)

@@ -19,6 +19,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 )
 
+const DefaultRootVolSizeInGiB = int32(64)
+const DefaultRootVolName = "/dev/xvda"
 const DefaultMaxSpotPrice = "0.08"
 const DefaultInstanceType = types.InstanceTypeC5aLarge
 const DefaultOperatingSystem = internal.AmazonLinux2
@@ -80,15 +82,16 @@ func getLatestAmiId(ctx context.Context, awsCfg aws.Config,
 }
 
 type LaunchEc2SpotArgs struct {
-	Os              internal.OperatingSystem // optional; defaults to AmazonLinux2
-	AmiId           string                   // optional; overrides Os; defaults to latest ami for specified Os
-	KeyPair         string                   // optional; defaults to spotinst keypair
-	SecurityGroupId string                   // optional; defaults to default VPC's default SG
-	AttachRoleName  string                   // optional; defaults to no attached role
-	InitCmd         string                   // optional; defaults to empty
-	InstanceType    types.InstanceType       // optional; defaults to c5a.large
-	MaxSpotPrice    string                   // optional; defaults to "0.08" (USD$/hour)
-	User            string                   // optional; defaults to Os's default user
+	Os               internal.OperatingSystem // optional; defaults to AmazonLinux2
+	AmiId            string                   // optional; overrides Os; defaults to latest ami for specified Os
+	KeyPair          string                   // optional; defaults to spotinst keypair
+	SecurityGroupId  string                   // optional; defaults to default VPC's default SG
+	AttachRoleName   string                   // optional; defaults to no attached role
+	InitCmd          string                   // optional; defaults to empty
+	InstanceType     types.InstanceType       // optional; defaults to c5a.large
+	MaxSpotPrice     string                   // optional; defaults to "0.08" (USD$/hour)
+	User             string                   // optional; defaults to Os's default user
+	RootVolSizeInGiB int32                    // optional; defaults to 64GiB
 }
 
 type LaunchEc2SpotResult struct {
@@ -212,6 +215,17 @@ func LaunchEc2Spot(ctx context.Context,
 		ResourceType: types.ResourceTypeInstance,
 		Tags:         []types.Tag{tag},
 	}
+	rootVolSize := launchArgs.RootVolSizeInGiB
+	rootVolName := DefaultRootVolName
+	if rootVolSize == 0 {
+		rootVolSize = DefaultRootVolSizeInGiB
+	}
+	rootBlockMap := types.BlockDeviceMapping{
+		DeviceName: &rootVolName,
+		Ebs: &types.EbsBlockDevice{
+			VolumeSize: &rootVolSize,
+		},
+	}
 	runInput := &ec2.RunInstancesInput{
 		MaxCount:                          &maxCount,
 		MinCount:                          &minCount,
@@ -224,6 +238,7 @@ func LaunchEc2Spot(ctx context.Context,
 		SecurityGroupIds:                  []string{sgId},
 		UserData:                          initCmdEncoded,
 		TagSpecifications:                 []types.TagSpecification{tagSpec},
+		BlockDeviceMappings:               []types.BlockDeviceMapping{rootBlockMap},
 	}
 	runOutput, err := ec2Client.RunInstances(ctx, runInput)
 	if err != nil {

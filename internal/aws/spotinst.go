@@ -179,12 +179,16 @@ func LaunchEc2Spot(ctx context.Context,
 		if launchArgs.Os == internal.OsNone {
 			launchArgs.Os = DefaultOperatingSystem
 		}
+		idx := int(launchArgs.Os)
+		launchResult.User = imageIdTab[idx].user
 		amiId, err = getLatestAmiId(ctx, awsCfg, launchArgs.Os)
 		if err != nil {
 			return launchResult, err
 		}
 	} else if launchArgs.User == "" {
 		return launchResult, fmt.Errorf("User must be specified when ami id is specified")
+	} else {
+		launchResult.User = launchArgs.User
 	}
 	sgId := launchArgs.SecurityGroupId
 	if sgId == "" {
@@ -198,12 +202,6 @@ func LaunchEc2Spot(ctx context.Context,
 		iType = DefaultInstanceType
 	}
 	launchResult.InstanceType = iType
-	if launchArgs.Os != internal.OsNone {
-		idx := int(launchArgs.Os)
-		launchResult.User = imageIdTab[idx].user
-	} else {
-		launchResult.User = launchArgs.User
-	}
 	tagKey := defaultTagKey
 	tagVal := launchResult.User
 	tag := types.Tag{

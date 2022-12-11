@@ -20,7 +20,6 @@ import (
 )
 
 const DefaultRootVolSizeInGiB = int32(64)
-const DefaultRootVolName = "/dev/xvda"
 const DefaultMaxSpotPrice = "0.08"
 const DefaultInstanceType = types.InstanceTypeC5aLarge
 const DefaultOperatingSystem = internal.AmazonLinux2
@@ -216,7 +215,10 @@ func LaunchEc2Spot(ctx context.Context,
 		Tags:         []types.Tag{tag},
 	}
 	rootVolSize := launchArgs.RootVolSizeInGiB
-	rootVolName := DefaultRootVolName
+	rootVolName, err := getRootVolName(ctx, ec2Client, amiId)
+	if err != nil {
+		return launchResult, err
+	}
 	if rootVolSize == 0 {
 		rootVolSize = DefaultRootVolSizeInGiB
 	}
@@ -281,6 +283,28 @@ func LaunchEc2Spot(ctx context.Context,
 	}
 
 	return launchResult, nil
+}
+
+func getRootVolName(ctx context.Context, ec2Client *ec2.Client,
+	amiId string) (string, error) {
+
+	dryRun := false
+	descInput := &ec2.DescribeImagesInput{
+		DryRun:   &dryRun,
+		ImageIds: []string{amiId},
+	}
+
+	descOutput, err := ec2Client.DescribeImages(ctx, descInput)
+	if err != nil {
+		return "", err
+	}
+
+	if len(descOutput.Images) != 1 {
+		return "", fmt.Errorf("Unexpected image count returned(%v) for %v description",
+			len(descOutput.Images), amiId)
+	}
+
+	return *descOutput.Images[0].RootDeviceName, nil
 }
 
 func TerminateInstance(ctx context.Context, instanceId string) error {

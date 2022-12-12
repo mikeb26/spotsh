@@ -346,7 +346,7 @@ func sshCommon(canLaunch bool, args []string) error {
 	}
 	fmt.Printf("exec %v\n", sshArgs)
 
-	err = syscall.Exec("/usr/bin/ssh", sshArgs, nil)
+	err = syscall.Exec("/usr/bin/ssh", sshArgs, os.Environ())
 	if err != nil {
 		return fmt.Errorf("Failed to ssh: %w\n", err)
 	}

@@ -15,25 +15,14 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 )
 
 const defaultTagKey = "spotsh.user"
 
-func getKeyName(awsCfg aws.Config) string {
+func GetDefaultKeyName(awsCfg aws.Config) string {
 	return fmt.Sprintf("spotsh.%v", awsCfg.Region)
-}
-
-func GetDefaultKeyName(ctx context.Context) (string, error) {
-
-	awsCfg, err := config.LoadDefaultConfig(ctx)
-	if err != nil {
-		return "", err
-	}
-
-	return getKeyName(awsCfg), nil
 }
 
 func getSshRootDir() (string, error) {
@@ -57,7 +46,7 @@ func createDefaultKeyPair(ctx context.Context, awsCfg aws.Config,
 		return err
 	}
 
-	keyName := getKeyName(awsCfg)
+	keyName := GetDefaultKeyName(awsCfg)
 	dryRun := false
 	createKeyInput := &ec2.CreateKeyPairInput{
 		KeyName:   &keyName,
@@ -79,17 +68,12 @@ func createDefaultKeyPair(ctx context.Context, awsCfg aws.Config,
 	return nil
 }
 
-func GetLocalDefaultKeyFile(ctx context.Context) (string, error) {
+func GetLocalDefaultKeyFile(awsCfg aws.Config) (string, error) {
 	sshRootDir, err := getSshRootDir()
 	if err != nil {
 		return "", err
 	}
-	awsCfg, err := config.LoadDefaultConfig(ctx)
-	if err != nil {
-		return "", err
-	}
-
-	keyName := getKeyName(awsCfg)
+	keyName := GetDefaultKeyName(awsCfg)
 
 	return filepath.Join(sshRootDir, keyName), nil
 }
@@ -99,7 +83,7 @@ func haveDefaultKeyPair(ctx context.Context, awsCfg aws.Config) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	keyName := getKeyName(awsCfg)
+	keyName := GetDefaultKeyName(awsCfg)
 	localKeyFile := filepath.Join(sshRootDir, keyName)
 	_, err = os.Stat(localKeyFile)
 	if os.IsNotExist(err) {
@@ -123,15 +107,11 @@ type LookupKeysResult struct {
 	Keys map[string]*LookupKeyItem
 }
 
-func LookupKeys(ctx context.Context) (LookupKeysResult, error) {
+func LookupKeys(awsCfg aws.Config) (LookupKeysResult, error) {
 	lookupKeysResult := LookupKeysResult{
 		Keys: make(map[string]*LookupKeyItem),
 	}
 
-	awsCfg, err := config.LoadDefaultConfig(ctx)
-	if err != nil {
-		return lookupKeysResult, err
-	}
 	ec2Client := ec2.NewFromConfig(awsCfg)
 	dryRun := false
 	includePublic := true
@@ -139,6 +119,8 @@ func LookupKeys(ctx context.Context) (LookupKeysResult, error) {
 		DryRun:           &dryRun,
 		IncludePublicKey: &includePublic,
 	}
+
+	ctx := context.Background()
 	descKeyOutput, err := ec2Client.DescribeKeyPairs(ctx, descKeyInput)
 	if err != nil {
 		return lookupKeysResult, err

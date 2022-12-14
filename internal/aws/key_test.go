@@ -15,7 +15,6 @@ import (
 
 func TestLookupKeys(t *testing.T) {
 	ctx := context.Background()
-
 	awsCfg, err := config.LoadDefaultConfig(ctx)
 	if err != nil {
 		t.Fatalf("failed to init aws config: %v", err)
@@ -32,12 +31,12 @@ func TestLookupKeys(t *testing.T) {
 		}
 	}
 
-	keyResults, err := LookupKeys(ctx)
+	keyResults, err := LookupKeys(awsCfg)
 	if err != nil {
 		t.Fatalf("failed to lookup keys: %v", err)
 	}
 
-	defaultKeyPath, err := GetLocalDefaultKeyFile(ctx)
+	defaultKeyPath, err := GetLocalDefaultKeyFile(awsCfg)
 	if err != nil {
 		t.Fatalf("failed to get default key file: %v", err)
 	}

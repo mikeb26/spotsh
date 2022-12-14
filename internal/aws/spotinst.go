@@ -12,7 +12,7 @@ import (
 
 	"github.com/mikeb26/spotsh/internal"
 
-	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 )
@@ -43,7 +43,7 @@ type LaunchEc2SpotResult struct {
 	InstanceType types.InstanceType
 }
 
-func LaunchEc2Spot(ctx context.Context,
+func LaunchEc2Spot(awsCfg aws.Config,
 	launchArgs *LaunchEc2SpotArgs) (LaunchEc2SpotResult, error) {
 
 	if launchArgs == nil {
@@ -51,10 +51,6 @@ func LaunchEc2Spot(ctx context.Context,
 	}
 
 	var launchResult LaunchEc2SpotResult
-	awsCfg, err := config.LoadDefaultConfig(ctx)
-	if err != nil {
-		return launchResult, err
-	}
 	ec2Client := ec2.NewFromConfig(awsCfg)
 
 	spotPrice := launchArgs.MaxSpotPrice
@@ -80,6 +76,7 @@ func LaunchEc2Spot(ctx context.Context,
 	maxCount := int32(1)
 	minCount := int32(1)
 
+	ctx := context.Background()
 	var keyName *string
 	if launchArgs.KeyPair != "" {
 		keyName = &launchArgs.KeyPair
@@ -94,10 +91,10 @@ func LaunchEc2Spot(ctx context.Context,
 				return launchResult, err
 			}
 		}
-		keyPair := getKeyName(awsCfg)
+		keyPair := GetDefaultKeyName(awsCfg)
 		keyName = &keyPair
 	}
-	keysResult, err := LookupKeys(ctx)
+	keysResult, err := LookupKeys(awsCfg)
 	if err != nil {
 		return launchResult, err
 	}
@@ -134,7 +131,7 @@ func LaunchEc2Spot(ctx context.Context,
 	}
 	sgId := launchArgs.SecurityGroupId
 	if sgId == "" {
-		sgId, err = getDefaultSecurityGroupId(ctx, ec2Client)
+		sgId, err = getDefaultSecurityGroupId(awsCfg, ec2Client)
 		if err != nil {
 			return launchResult, err
 		}
@@ -225,11 +222,7 @@ func LaunchEc2Spot(ctx context.Context,
 	return launchResult, nil
 }
 
-func TerminateInstance(ctx context.Context, instanceId string) error {
-	awsCfg, err := config.LoadDefaultConfig(ctx)
-	if err != nil {
-		return err
-	}
+func TerminateInstance(awsCfg aws.Config, instanceId string) error {
 	ec2Client := ec2.NewFromConfig(awsCfg)
 
 	dryRun := false
@@ -237,7 +230,8 @@ func TerminateInstance(ctx context.Context, instanceId string) error {
 		InstanceIds: []string{instanceId},
 		DryRun:      &dryRun,
 	}
-	_, err = ec2Client.TerminateInstances(ctx, termInput)
+	ctx := context.Background()
+	_, err := ec2Client.TerminateInstances(ctx, termInput)
 	if err != nil {
 		return err
 	}
@@ -245,14 +239,10 @@ func TerminateInstance(ctx context.Context, instanceId string) error {
 	return nil
 }
 
-func LookupEc2Spot(ctx context.Context) ([]LaunchEc2SpotResult, error) {
+func LookupEc2Spot(awsCfg aws.Config) ([]LaunchEc2SpotResult, error) {
 
 	launchResults := make([]LaunchEc2SpotResult, 0)
 
-	awsCfg, err := config.LoadDefaultConfig(ctx)
-	if err != nil {
-		return launchResults, err
-	}
 	ec2Client := ec2.NewFromConfig(awsCfg)
 	dryRun := false
 	maxResults := int32(1000)
@@ -260,11 +250,12 @@ func LookupEc2Spot(ctx context.Context) ([]LaunchEc2SpotResult, error) {
 		DryRun:     &dryRun,
 		MaxResults: &maxResults,
 	}
+	ctx := context.Background()
 	descOutput, err := ec2Client.DescribeInstances(ctx, describeInput)
 	if err != nil {
 		return launchResults, err
 	}
-	keysResult, err := LookupKeys(ctx)
+	keysResult, err := LookupKeys(awsCfg)
 	if err != nil {
 		return launchResults, err
 	}

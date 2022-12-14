@@ -8,21 +8,17 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 )
 
-func GetDefaultSecurityGroupId(ctx context.Context) (string, error) {
-	awsCfg, err := config.LoadDefaultConfig(ctx)
-	if err != nil {
-		return "", err
-	}
+func GetDefaultSecurityGroupId(awsCfg aws.Config) (string, error) {
 	ec2Client := ec2.NewFromConfig(awsCfg)
 
-	return getDefaultSecurityGroupId(ctx, ec2Client)
+	return getDefaultSecurityGroupId(awsCfg, ec2Client)
 }
 
-func getDefaultSecurityGroupId(ctx context.Context,
+func getDefaultSecurityGroupId(awsCfg aws.Config,
 	ec2Client *ec2.Client) (string, error) {
 
 	dryRun := false
@@ -31,6 +27,7 @@ func getDefaultSecurityGroupId(ctx context.Context,
 		DryRun:     &dryRun,
 		MaxResults: &maxResults,
 	}
+	ctx := context.Background()
 	descVpcsOutput, err := ec2Client.DescribeVpcs(ctx, descVpcsInput)
 	if err != nil {
 		return "", err
@@ -99,16 +96,12 @@ type LookupVpcSgsResult struct {
 	Vpcs map[string]*LookupVpcSgsVpc
 }
 
-func LookupVpcSecurityGroups(ctx context.Context) (LookupVpcSgsResult, error) {
+func LookupVpcSecurityGroups(awsCfg aws.Config) (LookupVpcSgsResult, error) {
 
 	lookupVpcSgsResult := LookupVpcSgsResult{
 		Vpcs: make(map[string]*LookupVpcSgsVpc),
 	}
 
-	awsCfg, err := config.LoadDefaultConfig(ctx)
-	if err != nil {
-		return lookupVpcSgsResult, err
-	}
 	ec2Client := ec2.NewFromConfig(awsCfg)
 
 	dryRun := false
@@ -117,6 +110,7 @@ func LookupVpcSecurityGroups(ctx context.Context) (LookupVpcSgsResult, error) {
 		DryRun:     &dryRun,
 		MaxResults: &maxResults,
 	}
+	ctx := context.Background()
 	descVpcsOutput, err := ec2Client.DescribeVpcs(ctx, descVpcsInput)
 	if err != nil {
 		return lookupVpcSgsResult, err

@@ -52,8 +52,12 @@ func TestSsmParam(t *testing.T) {
 
 func TestLaunch(t *testing.T) {
 	ctx := context.Background()
+	awsCfg, err := config.LoadDefaultConfig(ctx)
+	if err != nil {
+		t.Fatalf("failed to init aws config: %v", err)
+	}
 
-	launchResult, err := LaunchEc2Spot(ctx, nil)
+	launchResult, err := LaunchEc2Spot(awsCfg, nil)
 	if err != nil {
 		t.Fatalf("failed to launch spot instance: %v", err)
 	}
@@ -63,7 +67,7 @@ func TestLaunch(t *testing.T) {
 			launchResult.InstanceId)
 	}
 
-	defer TerminateInstance(ctx, launchResult.InstanceId)
+	defer TerminateInstance(awsCfg, launchResult.InstanceId)
 
 	if launchResult.PublicIp == "" {
 		t.Fatalf("launch failed to return ip addr")

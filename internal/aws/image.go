@@ -9,7 +9,6 @@ import (
 	"fmt"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	"github.com/mikeb26/spotsh/internal"
@@ -103,15 +102,11 @@ type LookupImagesResult struct {
 	Images map[string]*LookupImageItem
 }
 
-func LookupImages(ctx context.Context) (LookupImagesResult, error) {
+func LookupImages(awsCfg aws.Config) (LookupImagesResult, error) {
 	lookupImagesResult := LookupImagesResult{
 		Images: make(map[string]*LookupImageItem),
 	}
 
-	awsCfg, err := config.LoadDefaultConfig(ctx)
-	if err != nil {
-		return lookupImagesResult, err
-	}
 	ec2Client := ec2.NewFromConfig(awsCfg)
 
 	dryRun := false
@@ -120,6 +115,7 @@ func LookupImages(ctx context.Context) (LookupImagesResult, error) {
 		Owners: []string{"self"},
 	}
 
+	ctx := context.Background()
 	descOutput, err := ec2Client.DescribeImages(ctx, descInput)
 	if err != nil {
 		return lookupImagesResult, err

@@ -27,7 +27,7 @@ spotsh - Spot Shell
   Utility for creating/terminating/ssh'ing to an EC2 spot instance
 
 Usage:
-  spotsh [<command>]
+  spotsh [<GLOBALFLAGS>] [<command>]
 
 Available Commands:
   config                         Set spotsh default preferences
@@ -60,6 +60,9 @@ LAUNCHFLAGS:                       | DEFAULT
   --type <instance_type>           | c5a.large
   --spotprice <maximum_spot_price> | 0.08 which represents $0.08/hour
   --user <username_to_ssh_as>      | os's default user
+
+GLOBALFLAGS:                       | DEFAULT
+  --region <aws_region>            | same default as set by 'aws configure'
 
 OPERATING_SYSTEM:
   When launching an instance the operating system to launch with can

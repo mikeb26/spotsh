@@ -8,13 +8,17 @@ import (
 	"context"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/mikeb26/spotsh/internal"
 )
 
 func TestLookupImagesKeys(t *testing.T) {
 	ctx := context.Background()
-
-	imageResults, err := LookupImages(ctx)
+	awsCfg, err := config.LoadDefaultConfig(ctx)
+	if err != nil {
+		t.Fatalf("failed to init aws config: %v", err)
+	}
+	imageResults, err := LookupImages(awsCfg)
 	if err != nil {
 		t.Fatalf("Failed to lookup images: %v", err)
 	}

@@ -15,13 +15,13 @@ import (
 
 func TestGetDefaultSecurityGroupId(t *testing.T) {
 	ctx := context.Background()
-
 	awsCfg, err := config.LoadDefaultConfig(ctx)
 	if err != nil {
 		t.Fatalf("failed to init aws config: %v", err)
 	}
+
 	ec2Client := ec2.NewFromConfig(awsCfg)
-	sgId, err := getDefaultSecurityGroupId(ctx, ec2Client)
+	sgId, err := getDefaultSecurityGroupId(awsCfg, ec2Client)
 	if err != nil {
 		t.Fatalf("failed to get default security group id: %v", err)
 	}
@@ -33,7 +33,11 @@ func TestGetDefaultSecurityGroupId(t *testing.T) {
 
 func TestLookupVpcSecurityGroups(t *testing.T) {
 	ctx := context.Background()
-	result, err := LookupVpcSecurityGroups(ctx)
+	awsCfg, err := config.LoadDefaultConfig(ctx)
+	if err != nil {
+		t.Fatalf("failed to init aws config: %v", err)
+	}
+	result, err := LookupVpcSecurityGroups(awsCfg)
 	if err != nil {
 		t.Fatalf("failed to lookup security groups: %v", err)
 	}

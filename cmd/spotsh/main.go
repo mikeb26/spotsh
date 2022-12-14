@@ -19,21 +19,27 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
+
 	"github.com/mikeb26/spotsh/internal"
-	"github.com/mikeb26/spotsh/internal/aws"
+	iaws "github.com/mikeb26/spotsh/internal/aws"
 )
 
 type Prefs struct {
-	Os               string `json:",omitempty"`
-	InstanceType     string `json:",omitempty"`
-	KeyPair          string `json:",omitempty"`
-	SecurityGroup    string `json:",omitempty"`
-	MaxSpotPrice     string `json:",omitempty"`
-	RootVolSizeInGiB int32  `json:",omitempty"`
+	Os               string            `json:",omitempty"`
+	InstanceType     string            `json:",omitempty"`
+	KeyPairs         map[string]string `json:",omitempty"`
+	SecurityGroups   map[string]string `json:",omitempty"`
+	MaxSpotPrice     string            `json:",omitempty"`
+	RootVolSizeInGiB int32             `json:",omitempty"`
+
+	keyPair       string
+	securityGroup string
 }
 
-var subCommandTab = map[string]func(args []string) error{
+var subCommandTab = map[string]func(awsCfg aws.Config, args []string) error{
 	"help":      helpMain,
 	"info":      infoMain,
 	"ls":        infoMain, // alias for info
@@ -49,7 +55,7 @@ var subCommandTab = map[string]func(args []string) error{
 //go:embed help.txt
 var helpText string
 
-func helpMain(args []string) error {
+func helpMain(awsCfg aws.Config, args []string) error {
 	fmt.Printf(helpText)
 
 	return nil
@@ -60,15 +66,14 @@ var versionText string
 
 const DevVersionText = "v0.devbuild"
 
-func versionMain(args []string) error {
+func versionMain(awsCfg aws.Config, args []string) error {
 	fmt.Printf("spotsh-%v\n", versionText)
 
 	return nil
 }
 
-func infoMain(args []string) error {
-	ctx := context.Background()
-	launchResults, err := aws.LookupEc2Spot(ctx)
+func infoMain(awsCfg aws.Config, args []string) error {
+	launchResults, err := iaws.LookupEc2Spot(awsCfg)
 	if err != nil {
 		return fmt.Errorf("Failed to lookup instance: %w", err)
 	}
@@ -89,7 +94,7 @@ func infoMain(args []string) error {
 		}
 	}
 
-	vpcSgResults, err := aws.LookupVpcSecurityGroups(ctx)
+	vpcSgResults, err := iaws.LookupVpcSecurityGroups(awsCfg)
 	if err != nil {
 		return fmt.Errorf("Failed to lookup security groups: %w", err)
 	}
@@ -110,7 +115,7 @@ func infoMain(args []string) error {
 		idx++
 	}
 
-	keyResults, err := aws.LookupKeys(ctx)
+	keyResults, err := iaws.LookupKeys(awsCfg)
 	if err != nil {
 		return fmt.Errorf("Failed to lookup keys: %w", err)
 	}
@@ -126,7 +131,7 @@ func infoMain(args []string) error {
 		idx++
 	}
 
-	imageResults, err := aws.LookupImages(ctx)
+	imageResults, err := iaws.LookupImages(awsCfg)
 	if err != nil {
 		return fmt.Errorf("Failed to lookup images: %w", err)
 	}
@@ -143,8 +148,8 @@ func infoMain(args []string) error {
 	return nil
 }
 
-func launchMain(args []string) error {
-	launchArgs, err := newLaunchArgsFromPrefs()
+func launchMain(awsCfg aws.Config, args []string) error {
+	launchArgs, err := newLaunchArgsFromPrefs(awsCfg)
 	if err != nil {
 		return err
 	}
@@ -190,9 +195,7 @@ func launchMain(args []string) error {
 		}
 	}
 
-	ctx := context.Background()
-
-	launchResult, err := aws.LaunchEc2Spot(ctx, launchArgs)
+	launchResult, err := iaws.LaunchEc2Spot(awsCfg, launchArgs)
 	if err != nil {
 		return err
 	}
@@ -202,7 +205,7 @@ func launchMain(args []string) error {
 	return nil
 }
 
-func terminateMain(args []string) error {
+func terminateMain(awsCfg aws.Config, args []string) error {
 	termOpts := struct {
 		instanceId string
 	}{}
@@ -214,8 +217,7 @@ func terminateMain(args []string) error {
 		return err
 	}
 
-	ctx := context.Background()
-	launchResults, err := aws.LookupEc2Spot(ctx)
+	launchResults, err := iaws.LookupEc2Spot(awsCfg)
 	if err != nil {
 		return fmt.Errorf("Failed to lookup instance: %w", err)
 	}
@@ -229,7 +231,7 @@ func terminateMain(args []string) error {
 		return fmt.Errorf("%v", errStr)
 	}
 
-	var selectedResult *aws.LaunchEc2SpotResult
+	var selectedResult *iaws.LaunchEc2SpotResult
 	for idx, lr := range launchResults {
 		if termOpts.instanceId == "" || termOpts.instanceId == lr.InstanceId {
 			selectedResult = &launchResults[idx]
@@ -245,17 +247,17 @@ func terminateMain(args []string) error {
 			termOpts.instanceId)
 	}
 
-	return aws.TerminateInstance(ctx, selectedResult.InstanceId)
+	return iaws.TerminateInstance(awsCfg, selectedResult.InstanceId)
 }
 
-func sshMain(args []string) error {
-	return sshCommon(false, args)
+func sshMain(awsCfg aws.Config, args []string) error {
+	return sshCommon(awsCfg, false, args)
 }
 
-func scpMain(args []string) error {
+func scpMain(awsCfg aws.Config, args []string) error {
 	const SpotHostVar = "{s}"
 
-	selectedResult, err := selectOrLaunchCommon("spotsh scp", false, &args)
+	selectedResult, err := selectOrLaunchCommon(awsCfg, "spotsh scp", false, &args)
 	if err != nil {
 		return err
 	}
@@ -282,8 +284,8 @@ func scpMain(args []string) error {
 	return nil
 }
 
-func selectOrLaunchCommon(cmdName string, canLaunch bool,
-	args *[]string) (*aws.LaunchEc2SpotResult, error) {
+func selectOrLaunchCommon(awsCfg aws.Config, cmdName string, canLaunch bool,
+	args *[]string) (*iaws.LaunchEc2SpotResult, error) {
 
 	sshOpts := struct {
 		instanceId string
@@ -296,18 +298,16 @@ func selectOrLaunchCommon(cmdName string, canLaunch bool,
 		return nil, err
 	}
 
-	ctx := context.Background()
-
-	launchResults, err := aws.LookupEc2Spot(ctx)
+	launchResults, err := iaws.LookupEc2Spot(awsCfg)
 	if err == nil && len(launchResults) == 0 {
 		if canLaunch {
-			launchArgs, err := newLaunchArgsFromPrefs()
+			launchArgs, err := newLaunchArgsFromPrefs(awsCfg)
 			if err != nil {
 				return nil, err
 			}
-			var newLaunchResult aws.LaunchEc2SpotResult
+			var newLaunchResult iaws.LaunchEc2SpotResult
 
-			newLaunchResult, err = aws.LaunchEc2Spot(ctx, launchArgs)
+			newLaunchResult, err = iaws.LaunchEc2Spot(awsCfg, launchArgs)
 			launchResults = append(launchResults, newLaunchResult)
 		} else {
 			err = fmt.Errorf("No spotssh instances running")
@@ -326,7 +326,7 @@ func selectOrLaunchCommon(cmdName string, canLaunch bool,
 		return nil, fmt.Errorf("%v", errStr)
 	}
 
-	var selectedResult *aws.LaunchEc2SpotResult
+	var selectedResult *iaws.LaunchEc2SpotResult
 	for idx, lr := range launchResults {
 		if sshOpts.instanceId == "" || sshOpts.instanceId == lr.InstanceId {
 			selectedResult = &launchResults[idx]
@@ -347,8 +347,9 @@ func selectOrLaunchCommon(cmdName string, canLaunch bool,
 	return selectedResult, nil
 }
 
-func sshCommon(canLaunch bool, args []string) error {
-	selectedResult, err := selectOrLaunchCommon("spotsh ssh", canLaunch, &args)
+func sshCommon(awsCfg aws.Config, canLaunch bool, args []string) error {
+	selectedResult, err := selectOrLaunchCommon(awsCfg, "spotsh ssh", canLaunch,
+		&args)
 	if err != nil {
 		return err
 	}
@@ -369,7 +370,7 @@ func sshCommon(canLaunch bool, args []string) error {
 	return nil
 }
 
-func upgradeMain(args []string) error {
+func upgradeMain(awsCfg aws.Config, args []string) error {
 	if versionText == DevVersionText {
 		fmt.Fprintf(os.Stderr, "Skipping spotsh upgrade on development version\n")
 		return nil
@@ -533,14 +534,22 @@ func getConfigPath() (string, error) {
 	return filepath.Join(configDir, "prefs.json"), nil
 }
 
-func loadConfigPrefs(configFilePath string, prefs *Prefs) error {
+func loadConfigPrefs(awsCfg aws.Config, configFilePath string, prefs *Prefs) error {
 	configContent, err := ioutil.ReadFile(configFilePath)
 	if os.IsNotExist(err) {
 		// defaults
 		return nil
 	}
 
-	return json.Unmarshal(configContent, prefs)
+	err = json.Unmarshal(configContent, prefs)
+	if err != nil {
+		return err
+	}
+
+	prefs.keyPair = prefs.KeyPairs[awsCfg.Region]
+	prefs.securityGroup = prefs.SecurityGroups[awsCfg.Region]
+
+	return nil
 }
 
 func storeConfigPrefs(configFilePath string, prefs *Prefs) error {
@@ -552,22 +561,31 @@ func storeConfigPrefs(configFilePath string, prefs *Prefs) error {
 	return ioutil.WriteFile(configFilePath, configContent, 0600)
 }
 
-func newLaunchArgsFromPrefs() (*aws.LaunchEc2SpotArgs, error) {
+func newPrefs() *Prefs {
+	ret := &Prefs{
+		KeyPairs:       make(map[string]string),
+		SecurityGroups: make(map[string]string),
+	}
+
+	return ret
+}
+
+func newLaunchArgsFromPrefs(awsCfg aws.Config) (*iaws.LaunchEc2SpotArgs, error) {
 	configFilePath, err := getConfigPath()
 	if err != nil {
 		return nil, err
 	}
 
-	prefs := &Prefs{}
-	err = loadConfigPrefs(configFilePath, prefs)
+	prefs := newPrefs()
+	err = loadConfigPrefs(awsCfg, configFilePath, prefs)
 	if err != nil {
 		return nil, err
 	}
 
-	launchArgs := &aws.LaunchEc2SpotArgs{
+	launchArgs := &iaws.LaunchEc2SpotArgs{
 		Os:               internal.OsFromString(prefs.Os),
-		KeyPair:          prefs.KeyPair,
-		SecurityGroupId:  prefs.SecurityGroup,
+		KeyPair:          prefs.keyPair,
+		SecurityGroupId:  prefs.securityGroup,
 		InstanceType:     types.InstanceType(prefs.InstanceType),
 		MaxSpotPrice:     prefs.MaxSpotPrice,
 		RootVolSizeInGiB: prefs.RootVolSizeInGiB,
@@ -576,7 +594,7 @@ func newLaunchArgsFromPrefs() (*aws.LaunchEc2SpotArgs, error) {
 	return launchArgs, nil
 }
 
-func configMain(args []string) error {
+func configMain(awsCfg aws.Config, args []string) error {
 	configDir, err := getConfigDir()
 	if err != nil {
 		return err
@@ -591,13 +609,13 @@ func configMain(args []string) error {
 		return err
 	}
 
-	prefs := &Prefs{}
-	err = loadConfigPrefs(configFilePath, prefs)
+	prefs := newPrefs()
+	err = loadConfigPrefs(awsCfg, configFilePath, prefs)
 	if err != nil {
 		return err
 	}
 
-	os := aws.DefaultOperatingSystem
+	os := iaws.DefaultOperatingSystem
 	if prefs.Os != "" {
 		os = internal.OsFromString(prefs.Os)
 	}
@@ -605,14 +623,14 @@ func configMain(args []string) error {
 	fmt.Printf("Setting spotsh preferences...\n")
 	// set os pref
 	fmt.Printf("Default operating system: \"%v\" (%v) Change? (Y/N) [N]: ",
-		os, aws.GetImageDesc(os))
+		os, iaws.GetImageDesc(os))
 	changePref := "N"
 	fmt.Scanf("%s", &changePref)
 	changePref = strings.ToUpper(strings.TrimSpace(changePref))
 	if changePref[0] == 'Y' {
 		fmt.Printf("  Available OS's: \n")
 		for _, osTmp := range os.Values() {
-			fmt.Printf("    \"%v\" (%v)\n", osTmp, aws.GetImageDesc(osTmp))
+			fmt.Printf("    \"%v\" (%v)\n", osTmp, iaws.GetImageDesc(osTmp))
 		}
 		fmt.Printf("  Enter preferred default operating system: ")
 		newOsStr := ""
@@ -628,7 +646,7 @@ func configMain(args []string) error {
 	}
 
 	// set itype pref
-	iType := aws.DefaultInstanceType
+	iType := iaws.DefaultInstanceType
 	if prefs.InstanceType != "" {
 		iType = types.InstanceType(prefs.InstanceType)
 	}
@@ -647,20 +665,16 @@ func configMain(args []string) error {
 	}
 
 	// set key pref
-	ctx := context.Background()
-	keyPair, err := aws.GetDefaultKeyName(ctx)
-	if err != nil {
-		return err
-	}
-	if prefs.KeyPair != "" {
-		keyPair = prefs.KeyPair
+	keyPair := iaws.GetDefaultKeyName(awsCfg)
+	if prefs.KeyPairs[awsCfg.Region] != "" {
+		keyPair = prefs.KeyPairs[awsCfg.Region]
 	}
 	fmt.Printf("Default keypair: %v Change? (Y/N) [N]: ", keyPair)
 	changePref = "N"
 	fmt.Scanf("%s", &changePref)
 	changePref = strings.ToUpper(strings.TrimSpace(changePref))
 	if changePref[0] == 'Y' {
-		existingKeys, err := aws.LookupKeys(ctx)
+		existingKeys, err := iaws.LookupKeys(awsCfg)
 		if err != nil {
 			return err
 		}
@@ -677,23 +691,24 @@ func configMain(args []string) error {
 		fmt.Scanf("%s", &newKey)
 		newKey = strings.TrimSpace(newKey)
 		newKey = strings.Split(newKey, " ")[0]
-		prefs.KeyPair = newKey
+		prefs.KeyPairs[awsCfg.Region] = newKey
+		prefs.keyPair = newKey
 	}
 
 	// set security group pref
-	sgId, err := aws.GetDefaultSecurityGroupId(ctx)
+	sgId, err := iaws.GetDefaultSecurityGroupId(awsCfg)
 	if err != nil {
 		sgId = "<none>"
 	}
-	if prefs.SecurityGroup != "" {
-		sgId = prefs.SecurityGroup
+	if prefs.SecurityGroups[awsCfg.Region] != "" {
+		sgId = prefs.SecurityGroups[awsCfg.Region]
 	}
 	fmt.Printf("Default security group id: %v Change? (Y/N) [N]: ", sgId)
 	changePref = "N"
 	fmt.Scanf("%s", &changePref)
 	changePref = strings.ToUpper(strings.TrimSpace(changePref))
 	if changePref[0] == 'Y' {
-		existingSgs, err := aws.LookupVpcSecurityGroups(ctx)
+		existingSgs, err := iaws.LookupVpcSecurityGroups(awsCfg)
 		if err != nil {
 			return err
 		}
@@ -713,11 +728,12 @@ func configMain(args []string) error {
 		fmt.Scanf("%s", &newSgId)
 		newSgId = strings.TrimSpace(newSgId)
 		newSgId = strings.Split(newSgId, " ")[0]
-		prefs.SecurityGroup = newSgId
+		prefs.SecurityGroups[awsCfg.Region] = newSgId
+		prefs.securityGroup = newSgId
 	}
 
 	// set max spot price pref
-	spotPrice := aws.DefaultMaxSpotPrice
+	spotPrice := iaws.DefaultMaxSpotPrice
 	if prefs.MaxSpotPrice != "" {
 		spotPrice = prefs.MaxSpotPrice
 	}
@@ -738,7 +754,7 @@ func configMain(args []string) error {
 	}
 
 	// set root vol size pref
-	rootVolSize := aws.DefaultRootVolSizeInGiB
+	rootVolSize := iaws.DefaultRootVolSizeInGiB
 	if prefs.RootVolSizeInGiB != 0 {
 		rootVolSize = prefs.RootVolSizeInGiB
 	}
@@ -758,29 +774,57 @@ func configMain(args []string) error {
 }
 
 func main() {
-	subCommandName := ""
+	ctx := context.Background()
+	awsCfg, err := config.LoadDefaultConfig(ctx)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		os.Exit(1)
+	}
+
+	var region string
+	f := flag.NewFlagSet("spotsh", flag.ContinueOnError)
+	f.StringVar(&region, "region", awsCfg.Region, "AWS region; e.g. us-east-2")
+
+	var args []string
 	if len(os.Args) > 1 {
-		subCommandName = os.Args[1]
+		args = os.Args[1:]
+	}
+	err = f.Parse(args)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		os.Exit(1)
+	}
+	args = f.Args()
+
+	if region != awsCfg.Region {
+		awsCfg, err = config.LoadDefaultConfig(ctx, config.WithRegion(region))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%v\n", err)
+			os.Exit(1)
+		}
+	}
+	subCommandName := ""
+	if len(args) > 0 {
+		subCommandName = args[0]
 	}
 	exitStatus := 0
-	var args []string
-	if len(os.Args) > 2 {
-		args = os.Args[2:]
+
+	if len(args) > 1 {
+		args = args[1:]
 	}
 
 	if subCommandName != "upgrade" {
 		checkAndPrintUpgradeWarning()
 	}
-	var err error
 	if subCommandName == "" {
-		err = sshCommon(true, args)
+		err = sshCommon(awsCfg, true, args)
 	} else {
 		subCommand, ok := subCommandTab[subCommandName]
 		if !ok {
 			subCommand = helpMain
 			exitStatus = 1
 		}
-		err = subCommand(args)
+		err = subCommand(awsCfg, args)
 	}
 
 	if err != nil {

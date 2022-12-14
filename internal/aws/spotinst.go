@@ -12,73 +12,15 @@ import (
 
 	"github.com/mikeb26/spotsh/internal"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
-	"github.com/aws/aws-sdk-go-v2/service/ssm"
 )
 
 const DefaultRootVolSizeInGiB = int32(64)
 const DefaultMaxSpotPrice = "0.08"
 const DefaultInstanceType = types.InstanceTypeC5aLarge
 const DefaultOperatingSystem = internal.AmazonLinux2
-
-type imageIdEntry struct {
-	os       internal.OperatingSystem
-	desc     string
-	ssmParam string
-	user     string
-}
-
-var imageIdTab = []imageIdEntry{
-	internal.OsNone: imageIdEntry{},
-	internal.Ubuntu22_04: imageIdEntry{
-		os:       internal.Ubuntu22_04,
-		desc:     "Ubuntu 22.04 LTS",
-		ssmParam: "/aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp2/ami-id",
-		user:     "ubuntu",
-	},
-	internal.AmazonLinux2: imageIdEntry{
-		os:       internal.AmazonLinux2,
-		desc:     "Amazon Linux 2",
-		ssmParam: "/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2",
-		user:     "ec2-user",
-	},
-}
-
-func GetImageDesc(os internal.OperatingSystem) string {
-	idx := uint64(os)
-	if os == internal.OsNone || os >= internal.OsInvalid {
-		idx = uint64(DefaultOperatingSystem)
-	}
-
-	return imageIdTab[idx].desc
-}
-
-func getLatestAmiId(ctx context.Context, awsCfg aws.Config,
-	os internal.OperatingSystem) (string, error) {
-
-	if os == internal.OsNone {
-		return "", fmt.Errorf("Must specify os type to determine latest ami")
-	}
-	idx := uint64(os)
-	if idx >= uint64(internal.OsInvalid) {
-		return "", fmt.Errorf("No such os index %v", idx)
-	}
-	idEntry := &imageIdTab[idx]
-
-	ssmClient := ssm.NewFromConfig(awsCfg)
-	getParamInput := &ssm.GetParameterInput{
-		Name: &idEntry.ssmParam,
-	}
-	getParamOutput, err := ssmClient.GetParameter(ctx, getParamInput)
-	if err != nil {
-		return "", err
-	}
-
-	return *getParamOutput.Parameter.Value, nil
-}
 
 type LaunchEc2SpotArgs struct {
 	Os               internal.OperatingSystem // optional; defaults to AmazonLinux2
@@ -281,28 +223,6 @@ func LaunchEc2Spot(ctx context.Context,
 	}
 
 	return launchResult, nil
-}
-
-func getRootVolName(ctx context.Context, ec2Client *ec2.Client,
-	amiId string) (string, error) {
-
-	dryRun := false
-	descInput := &ec2.DescribeImagesInput{
-		DryRun:   &dryRun,
-		ImageIds: []string{amiId},
-	}
-
-	descOutput, err := ec2Client.DescribeImages(ctx, descInput)
-	if err != nil {
-		return "", err
-	}
-
-	if len(descOutput.Images) != 1 {
-		return "", fmt.Errorf("Unexpected image count returned(%v) for %v description",
-			len(descOutput.Images), amiId)
-	}
-
-	return *descOutput.Images[0].RootDeviceName, nil
 }
 
 func TerminateInstance(ctx context.Context, instanceId string) error {

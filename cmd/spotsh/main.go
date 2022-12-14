@@ -36,6 +36,7 @@ type Prefs struct {
 var subCommandTab = map[string]func(args []string) error{
 	"help":      helpMain,
 	"info":      infoMain,
+	"ls":        infoMain, // alias for info
 	"launch":    launchMain,
 	"scp":       scpMain,
 	"ssh":       sshMain,
@@ -122,6 +123,20 @@ func infoMain(args []string) error {
 		if key.LocalKeyFile != "" {
 			fmt.Printf("\t\tLocal: %v\n", key.LocalKeyFile)
 		}
+		idx++
+	}
+
+	imageResults, err := aws.LookupImages(ctx)
+	if err != nil {
+		return fmt.Errorf("Failed to lookup images: %w", err)
+	}
+	fmt.Printf("Images:\n")
+	idx = 0
+	for imageId, image := range imageResults.Images {
+		fmt.Printf("\tImages[%v]:\n", idx)
+		fmt.Printf("\t\tId: %v\n", imageId)
+		fmt.Printf("\t\tName: %v\n", image.Name)
+		fmt.Printf("\t\tOwnership: %v\n", image.Ownership)
 		idx++
 	}
 

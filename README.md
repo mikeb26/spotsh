@@ -35,6 +35,7 @@ Available Commands:
   info                           List spot shell instances, security
                                  groups, and available key pairs
   launch [<LAUNCHFLAGS>]         Launch a new spot shell instance
+  price [<PRICEFLAGS>]           Display spot prices
   ssh [<SSHFLAGS>]               ssh to an existing spot shell instance
   scp [<SSHFLAGS>] -- <SCP_ARGS> scp to/from an existing spot shell
                                  instance
@@ -63,6 +64,10 @@ LAUNCHFLAGS:                       | DEFAULT
 
 GLOBALFLAGS:                       | DEFAULT
   --region <aws_region>            | same default as set by 'aws configure'
+  --region all (price cmd only)    | n/a
+
+PRICEFLAGS:                                    | DEFAULT
+  --types <instance_type>[,<instance_type>...] | c5a.large
 
 OPERATING_SYSTEM:
   When launching an instance the operating system to launch with can

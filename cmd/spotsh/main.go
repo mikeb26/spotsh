@@ -50,6 +50,7 @@ var subCommandTab = map[string]func(awsCfg aws.Config, args []string) error{
 	"version":   versionMain,
 	"upgrade":   upgradeMain,
 	"config":    configMain,
+	"price":     priceMain,
 }
 
 //go:embed help.txt
@@ -771,6 +772,51 @@ func configMain(awsCfg aws.Config, args []string) error {
 	}
 
 	return storeConfigPrefs(configFilePath, prefs)
+}
+
+func priceMain(awsCfg aws.Config, args []string) error {
+	launchArgs, err := newLaunchArgsFromPrefs(awsCfg)
+	if err != nil {
+		return err
+	}
+
+	var iTypesIn string
+
+	f := flag.NewFlagSet("spotsh price", flag.ContinueOnError)
+	f.StringVar(&iTypesIn, "types", string(launchArgs.InstanceType), "Instance types")
+	err = f.Parse(args)
+	if err != nil {
+		return err
+	}
+
+	var iTypes []types.InstanceType
+	for _, iTypeIn := range strings.Split(iTypesIn, ",") {
+		iTypes = append(iTypes, types.InstanceType(iTypeIn))
+	}
+
+	lookupResult, err := iaws.LookupEc2SpotPrices(awsCfg, iTypes)
+	if err != nil {
+		return err
+	}
+
+	for _, lookupInst := range lookupResult.InstanceTypes {
+		for _, lookupReg := range lookupInst.Regions {
+			if lookupReg.CheapestAz == nil {
+				continue
+			}
+
+			lookupAz := lookupReg.CheapestAz
+			if lookupReg == lookupInst.CheapestRegion &&
+				lookupInst == lookupResult.CheapestIType {
+				fmt.Printf(" ** ")
+			}
+
+			fmt.Printf("%v - %v - %v - $%v/hr\n", lookupInst.InstanceType,
+				lookupReg.Region, lookupAz.AzName, lookupAz.CurPrice)
+		}
+	}
+
+	return nil
 }
 
 func main() {

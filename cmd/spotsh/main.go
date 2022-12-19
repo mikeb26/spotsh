@@ -91,7 +91,10 @@ func infoMain(awsCfg aws.Config, args []string) error {
 				lr.LocalKeyFile = "<not present>"
 			}
 			fmt.Printf("\t\tType: %v\n", lr.InstanceType)
+			fmt.Printf("\t\tImageId: %v\n", lr.ImageId)
 			fmt.Printf("\t\tLocalKeyFile: %v\n", lr.LocalKeyFile)
+			fmt.Printf("\t\tCurrentPrice: $%v/hr\n", lr.CurrentPrice)
+			fmt.Printf("\t\tAZName: %v\n", lr.AzName)
 		}
 	}
 

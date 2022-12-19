@@ -41,6 +41,9 @@ type LaunchEc2SpotResult struct {
 	User         string
 	LocalKeyFile string
 	InstanceType types.InstanceType
+	ImageId      string
+	CurrentPrice float64
+	AzName       string
 }
 
 func LaunchEc2Spot(awsCfg aws.Config,
@@ -260,6 +263,9 @@ func LookupEc2Spot(awsCfg aws.Config) ([]LaunchEc2SpotResult, error) {
 		return launchResults, err
 	}
 
+	azMap := make(map[string]string)
+	var iTypes []types.InstanceType
+
 	for _, resv := range descOutput.Reservations {
 		for _, inst := range resv.Instances {
 			for _, tag := range inst.Tags {
@@ -276,6 +282,12 @@ func LookupEc2Spot(awsCfg aws.Config) ([]LaunchEc2SpotResult, error) {
 					}
 				}
 
+				azName, err := getAzNameFromSubnetId(ec2Client, azMap,
+					*inst.SubnetId)
+				if err != nil {
+					return launchResults, err
+				}
+				iTypes = append(iTypes, inst.InstanceType)
 				publicIp := ""
 				if inst.PublicIpAddress != nil {
 					publicIp = *inst.PublicIpAddress
@@ -286,11 +298,29 @@ func LookupEc2Spot(awsCfg aws.Config) ([]LaunchEc2SpotResult, error) {
 					User:         *tag.Value,
 					LocalKeyFile: localKeyFile,
 					InstanceType: inst.InstanceType,
+					ImageId:      *inst.ImageId,
+					AzName:       azName,
+					CurrentPrice: 0.00,
 				}
 
 				launchResults = append(launchResults, launchResult)
 			}
 		}
+	}
+
+	spotPriceResult, err := LookupEc2SpotPrices(awsCfg, iTypes)
+	if err != nil {
+		return launchResults, err
+	}
+
+	for idx, _ := range launchResults {
+		launchResult := &launchResults[idx]
+		iType := launchResult.InstanceType
+		reg := awsCfg.Region
+		azName := launchResult.AzName
+		curPrice :=
+			spotPriceResult.InstanceTypes[iType].Regions[reg].Azs[azName].CurPrice
+		launchResult.CurrentPrice = curPrice
 	}
 
 	return launchResults, nil

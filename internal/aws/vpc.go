@@ -151,3 +151,28 @@ func LookupVpcSecurityGroups(awsCfg aws.Config) (LookupVpcSgsResult, error) {
 
 	return lookupVpcSgsResult, nil
 }
+
+func getAzNameFromSubnetId(ec2Client *ec2.Client, azMap map[string]string,
+	subnetId string) (string, error) {
+
+	azName, ok := azMap[subnetId]
+	if ok {
+		return azName, nil
+	}
+
+	dryRun := false
+	descIn := &ec2.DescribeSubnetsInput{
+		DryRun: &dryRun,
+	}
+	ctx := context.Background()
+	descOut, err := ec2Client.DescribeSubnets(ctx, descIn)
+	if err != nil {
+		return "", err
+	}
+
+	for _, subnet := range descOut.Subnets {
+		azMap[*subnet.SubnetId] = *subnet.AvailabilityZone
+	}
+
+	return azMap[subnetId], nil
+}

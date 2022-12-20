@@ -308,6 +308,10 @@ func LookupEc2Spot(awsCfg aws.Config) ([]LaunchEc2SpotResult, error) {
 		}
 	}
 
+	if len(iTypes) == 0 {
+		return launchResults, nil
+	}
+
 	spotPriceResult, err := LookupEc2SpotPrices(awsCfg, iTypes)
 	if err != nil {
 		return launchResults, err

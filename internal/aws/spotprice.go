@@ -48,6 +48,10 @@ func LookupEc2SpotPrices(awsCfg aws.Config,
 	var err error
 	var regionList []string
 
+	if len(iTypes) == 0 {
+		return nil, fmt.Errorf("Could not fetch spot prices: please specify 1 or more instance types")
+	}
+
 	if awsCfg.Region == "all" {
 		regionList, err = getRegions()
 		if err != nil {

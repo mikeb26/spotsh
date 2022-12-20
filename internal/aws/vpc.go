@@ -176,3 +176,23 @@ func getAzNameFromSubnetId(ec2Client *ec2.Client, azMap map[string]string,
 
 	return azMap[subnetId], nil
 }
+
+func getSubnetIdFromAzName(ec2Client *ec2.Client, azName string) (string, error) {
+	dryRun := false
+	descIn := &ec2.DescribeSubnetsInput{
+		DryRun: &dryRun,
+	}
+	ctx := context.Background()
+	descOut, err := ec2Client.DescribeSubnets(ctx, descIn)
+	if err != nil {
+		return "", err
+	}
+
+	for _, subnet := range descOut.Subnets {
+		if azName == *subnet.AvailabilityZone {
+			return *subnet.SubnetId, nil
+		}
+	}
+
+	return "", fmt.Errorf("Could not find subnet for az:%v", azName)
+}

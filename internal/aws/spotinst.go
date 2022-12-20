@@ -168,6 +168,15 @@ func LaunchEc2Spot(awsCfg aws.Config,
 			VolumeSize: &rootVolSize,
 		},
 	}
+	spotPriceResult, err := LookupEc2SpotPrices(awsCfg, []types.InstanceType{iType})
+	if err != nil {
+		return launchResult, err
+	}
+	cheapestAz := spotPriceResult.CheapestIType.CheapestRegion.CheapestAz.AzName
+	subnetId, err := getSubnetIdFromAzName(ec2Client, cheapestAz)
+	if err != nil {
+		return launchResult, err
+	}
 	runInput := &ec2.RunInstancesInput{
 		MaxCount:                          &maxCount,
 		MinCount:                          &minCount,
@@ -180,6 +189,7 @@ func LaunchEc2Spot(awsCfg aws.Config,
 		SecurityGroupIds:                  []string{sgId},
 		UserData:                          initCmdEncoded,
 		TagSpecifications:                 []types.TagSpecification{tagSpec},
+		SubnetId:                          &subnetId,
 		BlockDeviceMappings:               []types.BlockDeviceMapping{rootBlockMap},
 	}
 	runOutput, err := ec2Client.RunInstances(ctx, runInput)

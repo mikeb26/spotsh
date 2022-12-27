@@ -19,7 +19,13 @@ import (
 
 const DefaultRootVolSizeInGiB = int32(64)
 const DefaultMaxSpotPrice = "0.08"
-const DefaultInstanceType = types.InstanceTypeC5aLarge
+
+var DefaultInstanceTypes = []types.InstanceType{types.InstanceTypeC5aLarge,
+	types.InstanceTypeC5Large,
+	types.InstanceTypeC6iLarge,
+	types.InstanceTypeC6aLarge,
+}
+
 const DefaultOperatingSystem = internal.AmazonLinux2
 
 type LaunchEc2SpotArgs struct {
@@ -29,7 +35,7 @@ type LaunchEc2SpotArgs struct {
 	SecurityGroupId  string                   // optional; defaults to default VPC's default SG
 	AttachRoleName   string                   // optional; defaults to no attached role
 	InitCmd          string                   // optional; defaults to empty
-	InstanceType     types.InstanceType       // optional; defaults to c5a.large
+	InstanceTypes    []types.InstanceType     // optional; defaults to c5a.large
 	MaxSpotPrice     string                   // optional; defaults to "0.08" (USD$/hour)
 	User             string                   // optional; defaults to Os's default user
 	RootVolSizeInGiB int32                    // optional; defaults to 64GiB
@@ -139,11 +145,6 @@ func LaunchEc2Spot(awsCfg aws.Config,
 			return launchResult, err
 		}
 	}
-	iType := launchArgs.InstanceType
-	if iType == "" {
-		iType = DefaultInstanceType
-	}
-	launchResult.InstanceType = iType
 	tagKey := defaultTagKey
 	tagVal := launchResult.User
 	tag := types.Tag{
@@ -168,10 +169,15 @@ func LaunchEc2Spot(awsCfg aws.Config,
 			VolumeSize: &rootVolSize,
 		},
 	}
-	spotPriceResult, err := LookupEc2SpotPrices(awsCfg, []types.InstanceType{iType})
+	if len(launchArgs.InstanceTypes) == 0 {
+		launchArgs.InstanceTypes = DefaultInstanceTypes
+	}
+	spotPriceResult, err := LookupEc2SpotPrices(awsCfg, launchArgs.InstanceTypes)
 	if err != nil {
 		return launchResult, err
 	}
+	iType := spotPriceResult.CheapestIType.InstanceType
+	launchResult.InstanceType = iType
 	cheapestAz := spotPriceResult.CheapestIType.CheapestRegion.CheapestAz.AzName
 	subnetId, err := getSubnetIdFromAzName(ec2Client, cheapestAz)
 	if err != nil {

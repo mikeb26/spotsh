@@ -24,26 +24,33 @@ By default when command is not specified spotsh will attempt to ssh to
 an existing spot shell instance. If a spot shell instance does not
 exist, it will be created.
 
-SSHFLAGS:                          | DEFAULT
-  --instance-id <EC2_instance_id>  | existing spotsh instance if running
+SSHFLAGS:                                       | DEFAULT
+  --instance-id <EC2_instance_id>               | existing spotsh
+                                                  instance if running
 
-LAUNCHFLAGS:                       | DEFAULT
-  --os <OPERATING_SYSTEM>          | amzn2
-  --ami <ami_id>                   | latest amzn2 AMI id
-  --key <keypair_name>             | spotsh.<your_aws_region>
-  --sgid <security_group_id>       | default VPC's default security group
-  --role <iam_role_name>           | none
-  --initcmd <initial_cmd_to_run>   | none
-  --type <instance_type>           | c5a.large
-  --spotprice <maximum_spot_price> | 0.08 which represents $0.08/hour
-  --user <username_to_ssh_as>      | os's default user
+LAUNCHFLAGS:                                    | DEFAULT
+  --os <OPERATING_SYSTEM>                       | amzn2
+  --ami <ami_id>                                | latest amzn2 AMI id
+  --key <keypair_name>                          | spotsh.<your_aws_region>
+  
+  --sgid <security_group_id>                    | default VPC's default
+                                                  security group
+  --role <iam_role_name>                        | none
+  --initcmd <initial_cmd_to_run>                | none
+  --types <instance_type>[,<instance_type>...]  | c5a.large,c5.large,\
+                                                  c6i.large,c6a.large
+  --spotprice <maximum_spot_price>              | 0.08 which represents
+                                                  $0.08/hour
+  --user <username_to_ssh_as>                   | os's default user
 
-GLOBALFLAGS:                       | DEFAULT
-  --region <aws_region>            | same default as set by 'aws configure'
-  --region all (price cmd only)    | n/a
+GLOBALFLAGS:                                    | DEFAULT
+  --region <aws_region>                         | same default as set by
+                                                  'aws configure'
+  --region all (price cmd only)                 | n/a
 
-PRICEFLAGS:                                    | DEFAULT
-  --types <instance_type>[,<instance_type>...] | c5a.large
+PRICEFLAGS:                                     | DEFAULT
+  --types <instance_type>[,<instance_type>...]  | c5a.large,c5.large,\
+                                                  c6i.large,c6a.large
 
 OPERATING_SYSTEM:
   When launching an instance the operating system to launch with can

@@ -29,7 +29,7 @@ import (
 
 type Prefs struct {
 	Os               string            `json:",omitempty"`
-	InstanceType     string            `json:",omitempty"`
+	InstanceTypes    []string          `json:",omitempty"`
 	KeyPairs         map[string]string `json:",omitempty"`
 	SecurityGroups   map[string]string `json:",omitempty"`
 	MaxSpotPrice     string            `json:",omitempty"`
@@ -159,7 +159,6 @@ func launchMain(awsCfg aws.Config, args []string) error {
 	}
 
 	var os string
-	var iType string
 
 	f := flag.NewFlagSet("spotsh launch", flag.ContinueOnError)
 	f.StringVar(&os, "os", "", "Operating System; e.g. amzn2")
@@ -173,7 +172,8 @@ func launchMain(awsCfg aws.Config, args []string) error {
 		"IAM Role to attach to instance")
 	f.StringVar(&launchArgs.InitCmd, "initcmd", launchArgs.InitCmd,
 		"Initial command to run in the instance")
-	f.StringVar(&iType, "type", string(launchArgs.InstanceType), "Instance type")
+	iTypeList := iTypeSlice2String(launchArgs.InstanceTypes)
+	f.StringVar(&iTypeList, "types", iTypeList, "Instance types")
 	f.StringVar(&launchArgs.MaxSpotPrice, "spotprice", launchArgs.MaxSpotPrice,
 		"Maximum spot price to pay")
 	err = f.Parse(args)
@@ -181,7 +181,7 @@ func launchMain(awsCfg aws.Config, args []string) error {
 		return err
 	}
 
-	launchArgs.InstanceType = types.InstanceType(iType)
+	launchArgs.InstanceTypes = string2iTypeSlice(iTypeList)
 
 	if launchArgs.AmiId != "" {
 		if os != "" {
@@ -207,6 +207,40 @@ func launchMain(awsCfg aws.Config, args []string) error {
 		launchResult.User, launchResult.PublicIp)
 
 	return nil
+}
+
+func iTypeSlice2String(iTypes []types.InstanceType) string {
+	var iTypeList string
+
+	for _, iType := range iTypes {
+		if iTypeList == "" {
+			iTypeList = string(iType)
+		} else {
+			iTypeList += "," + string(iType)
+		}
+	}
+
+	return iTypeList
+}
+
+func string2iTypeSlice(iTypeList string) []types.InstanceType {
+	iTypes := make([]types.InstanceType, 0)
+
+	for _, iType := range strings.Split(iTypeList, ",") {
+		iTypes = append(iTypes, types.InstanceType(iType))
+	}
+
+	return iTypes
+}
+
+func stringSlice2iTypeSlice(iTypesStr []string) []types.InstanceType {
+	iTypes := make([]types.InstanceType, 0)
+
+	for _, iType := range iTypesStr {
+		iTypes = append(iTypes, types.InstanceType(iType))
+	}
+
+	return iTypes
 }
 
 func terminateMain(awsCfg aws.Config, args []string) error {
@@ -569,6 +603,7 @@ func newPrefs() *Prefs {
 	ret := &Prefs{
 		KeyPairs:       make(map[string]string),
 		SecurityGroups: make(map[string]string),
+		InstanceTypes:  make([]string, 0),
 	}
 
 	return ret
@@ -590,7 +625,7 @@ func newLaunchArgsFromPrefs(awsCfg aws.Config) (*iaws.LaunchEc2SpotArgs, error) 
 		Os:               internal.OsFromString(prefs.Os),
 		KeyPair:          prefs.keyPair,
 		SecurityGroupId:  prefs.securityGroup,
-		InstanceType:     types.InstanceType(prefs.InstanceType),
+		InstanceTypes:    stringSlice2iTypeSlice(prefs.InstanceTypes),
 		MaxSpotPrice:     prefs.MaxSpotPrice,
 		RootVolSizeInGiB: prefs.RootVolSizeInGiB,
 	}
@@ -650,22 +685,22 @@ func configMain(awsCfg aws.Config, args []string) error {
 	}
 
 	// set itype pref
-	iType := iaws.DefaultInstanceType
-	if prefs.InstanceType != "" {
-		iType = types.InstanceType(prefs.InstanceType)
+	iTypeList := iTypeSlice2String(iaws.DefaultInstanceTypes)
+	if len(prefs.InstanceTypes) > 0 {
+		iTypeList = iTypeSlice2String(stringSlice2iTypeSlice(prefs.InstanceTypes))
 	}
-	fmt.Printf("Default instance type: %v Change? (Y/N) [N]: ", iType)
+	fmt.Printf("Default instance types: %v Change? (Y/N) [N]: ", iTypeList)
 	changePref = "N"
 	fmt.Scanf("%s", &changePref)
 	changePref = strings.ToUpper(strings.TrimSpace(changePref))
 	if changePref[0] == 'Y' {
 		fmt.Printf("  see https://aws.amazon.com/ec2/instance-types/ for a complete list\n")
-		fmt.Printf("  Enter preferred default instance type: ")
-		newItype := ""
-		fmt.Scanf("%s", &newItype)
-		newItype = strings.TrimSpace(newItype)
-		newItype = strings.Split(newItype, " ")[0]
-		prefs.InstanceType = newItype
+		fmt.Printf("  Enter preferred default instance types: ")
+		newItypeList := ""
+		fmt.Scanf("%s", &newItypeList)
+		newItypeList = strings.TrimSpace(newItypeList)
+		newItypeList = strings.Split(newItypeList, " ")[0]
+		prefs.InstanceTypes = strings.Split(newItypeList, ",")
 	}
 
 	// set key pref
@@ -783,20 +818,18 @@ func priceMain(awsCfg aws.Config, args []string) error {
 		return err
 	}
 
-	var iTypesIn string
-
 	f := flag.NewFlagSet("spotsh price", flag.ContinueOnError)
-	f.StringVar(&iTypesIn, "types", string(launchArgs.InstanceType), "Instance types")
+	iTypeList := iTypeSlice2String(iaws.DefaultInstanceTypes)
+	if len(launchArgs.InstanceTypes) > 0 {
+		iTypeList = iTypeSlice2String(launchArgs.InstanceTypes)
+	}
+	f.StringVar(&iTypeList, "types", iTypeList, "Instance types")
 	err = f.Parse(args)
 	if err != nil {
 		return err
 	}
 
-	var iTypes []types.InstanceType
-	for _, iTypeIn := range strings.Split(iTypesIn, ",") {
-		iTypes = append(iTypes, types.InstanceType(iTypeIn))
-	}
-
+	iTypes := string2iTypeSlice(iTypeList)
 	lookupResult, err := iaws.LookupEc2SpotPrices(awsCfg, iTypes)
 	if err != nil {
 		return err

@@ -39,7 +39,8 @@ type LookupEc2SpotPriceResult struct {
 	InstanceTypes map[types.InstanceType]*LookupEc2SpotPriceIType
 	CheapestIType *LookupEc2SpotPriceIType
 
-	mutex sync.Locker
+	mutex  sync.Locker
+	numAzs uint
 }
 
 func LookupEc2SpotPrices(awsCfg aws.Config,
@@ -89,6 +90,13 @@ func LookupEc2SpotPrices(awsCfg aws.Config,
 	}
 
 	err = wg.Wait()
+	if err != nil {
+		return nil, err
+	}
+	if result.numAzs == 0 {
+		return nil, fmt.Errorf("None of %v appear to be available in region %v",
+			iTypes, awsCfg.Region)
+	}
 
 	return result, err
 }
@@ -132,6 +140,7 @@ func lookupEc2SpotPricesOneRegion(curReg string, iTypes []types.InstanceType,
 
 		result.mutex.Lock()
 
+		result.numAzs++
 		result.InstanceTypes[iType].Regions[curReg].Azs[azName] = lookupAz
 		setCheapest(result, iType, curReg, azName, lookupAz)
 

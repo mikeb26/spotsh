@@ -227,6 +227,9 @@ func string2iTypeSlice(iTypeList string) []types.InstanceType {
 	iTypes := make([]types.InstanceType, 0)
 
 	for _, iType := range strings.Split(iTypeList, ",") {
+		if iType == "" {
+			continue
+		}
 		iTypes = append(iTypes, types.InstanceType(iType))
 	}
 

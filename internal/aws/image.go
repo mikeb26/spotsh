@@ -92,6 +92,23 @@ func getRootVolName(ctx context.Context, ec2Client *ec2.Client,
 	return *descOutput.Images[0].RootDeviceName, nil
 }
 
+func getAmiIdFromName(awsCfg aws.Config, ec2Client *ec2.Client,
+	amiName string) (string, error) {
+
+	lookupImagesResult, err := lookupImagesCommon(awsCfg, ec2Client)
+	if err != nil {
+		return "", err
+	}
+
+	for _, imgDesc := range lookupImagesResult.Images {
+		if imgDesc.Name == amiName {
+			return imgDesc.Id, nil
+		}
+	}
+
+	return "", fmt.Errorf("Could not find ami id for %v", amiName)
+}
+
 type LookupImageItem struct {
 	Id        string
 	Name      string
@@ -103,11 +120,17 @@ type LookupImagesResult struct {
 }
 
 func LookupImages(awsCfg aws.Config) (LookupImagesResult, error) {
+	ec2Client := ec2.NewFromConfig(awsCfg)
+
+	return lookupImagesCommon(awsCfg, ec2Client)
+}
+
+func lookupImagesCommon(awsCfg aws.Config,
+	ec2Client *ec2.Client) (LookupImagesResult, error) {
+
 	lookupImagesResult := LookupImagesResult{
 		Images: make(map[string]*LookupImageItem),
 	}
-
-	ec2Client := ec2.NewFromConfig(awsCfg)
 
 	dryRun := false
 	descInput := &ec2.DescribeImagesInput{

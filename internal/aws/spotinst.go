@@ -31,6 +31,7 @@ const DefaultOperatingSystem = internal.AmazonLinux2
 type LaunchEc2SpotArgs struct {
 	Os               internal.OperatingSystem // optional; defaults to AmazonLinux2
 	AmiId            string                   // optional; overrides Os; defaults to latest ami for specified Os
+	AmiName          string                   // optional; default is ignored in lieu of AmiId
 	KeyPair          string                   // optional; defaults to spotinst keypair
 	SecurityGroupId  string                   // optional; defaults to default VPC's default SG
 	AttachRoleName   string                   // optional; defaults to no attached role
@@ -123,6 +124,16 @@ func LaunchEc2Spot(awsCfg aws.Config,
 		initCmdEncoded = nil
 	}
 	amiId := launchArgs.AmiId
+	amiName := launchArgs.AmiName
+	if amiName != "" {
+		if amiId != "" {
+			return launchResult, fmt.Errorf("Ami id and ami name are mutually exclusive; please specify one or the other")
+		}
+		amiId, err = getAmiIdFromName(awsCfg, ec2Client, amiName)
+		if err != nil {
+			return launchResult, err
+		}
+	}
 	if amiId == "" {
 		if launchArgs.Os == internal.OsNone {
 			launchArgs.Os = DefaultOperatingSystem
@@ -134,7 +145,7 @@ func LaunchEc2Spot(awsCfg aws.Config,
 			return launchResult, err
 		}
 	} else if launchArgs.User == "" {
-		return launchResult, fmt.Errorf("User must be specified when ami id is specified")
+		return launchResult, fmt.Errorf("User must be specified when ami id or ami name are specified")
 	} else {
 		launchResult.User = launchArgs.User
 	}

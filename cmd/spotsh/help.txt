@@ -31,6 +31,7 @@ SSHFLAGS:                                       | DEFAULT
 LAUNCHFLAGS:                                    | DEFAULT
   --os <OPERATING_SYSTEM>                       | amzn2
   --ami <ami_id>                                | latest amzn2 AMI id
+  --ami-name <ami_name>                         | ignored
   --key <keypair_name>                          | spotsh.<your_aws_region>
   
   --sgid <security_group_id>                    | default VPC's default

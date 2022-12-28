@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"os/user"
 	"path/filepath"
 
 	"golang.org/x/crypto/ssh"
@@ -22,7 +23,18 @@ import (
 const defaultTagKey = "spotsh.user"
 
 func GetDefaultKeyName(awsCfg aws.Config) string {
-	return fmt.Sprintf("spotsh.%v", awsCfg.Region)
+	host, err := os.Hostname()
+	if err != nil {
+		host = "localhost"
+	}
+
+	username := "spotsh"
+	user, err := user.Current()
+	if err == nil {
+		username = user.Username
+	}
+
+	return fmt.Sprintf("%v@%v.%v", username, host, awsCfg.Region)
 }
 
 func getSshRootDir() (string, error) {

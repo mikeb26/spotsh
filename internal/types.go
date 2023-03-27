@@ -10,14 +10,18 @@ const (
 	OsNone OperatingSystem = iota
 	Ubuntu22_04
 	AmazonLinux2
+	AmazonLinux2023
+	AmazonLinux2023Min
 
 	OsInvalid // must be last
 )
 
 var osTab = []string{
-	OsNone:       "",
-	Ubuntu22_04:  "ubuntu22.04",
-	AmazonLinux2: "amzn2",
+	OsNone:             "",
+	Ubuntu22_04:        "ubuntu22.04",
+	AmazonLinux2:       "amzn2",
+	AmazonLinux2023:    "amzn2023",
+	AmazonLinux2023Min: "amzn2023min",
 
 	OsInvalid: "invalid",
 }
@@ -46,6 +50,8 @@ func (os OperatingSystem) Values() []OperatingSystem {
 	return []OperatingSystem{
 		Ubuntu22_04,
 		AmazonLinux2,
+		AmazonLinux2023,
+		AmazonLinux2023Min,
 	}
 }
 

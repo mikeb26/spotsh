@@ -35,6 +35,18 @@ var imageIdTab = []imageIdEntry{
 		ssmParam: "/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2",
 		user:     "ec2-user",
 	},
+	internal.AmazonLinux2023: imageIdEntry{
+		os:       internal.AmazonLinux2023,
+		desc:     "Amazon Linux 2023 (standard)",
+		ssmParam: "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64",
+		user:     "ec2-user",
+	},
+	internal.AmazonLinux2023Min: imageIdEntry{
+		os:       internal.AmazonLinux2023Min,
+		desc:     "Amazon Linux 2023 (minimal)",
+		ssmParam: "/aws/service/ami-amazon-linux-latest/al2023-ami-minimal-kernel-default-x86_64",
+		user:     "ec2-user",
+	},
 }
 
 func GetImageDesc(os internal.OperatingSystem) string {

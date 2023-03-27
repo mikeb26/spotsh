@@ -26,7 +26,7 @@ var DefaultInstanceTypes = []types.InstanceType{types.InstanceTypeC5aLarge,
 	types.InstanceTypeC6aLarge,
 }
 
-const DefaultOperatingSystem = internal.AmazonLinux2
+const DefaultOperatingSystem = internal.AmazonLinux2023
 
 type LaunchEc2SpotArgs struct {
 	Os               internal.OperatingSystem // optional; defaults to AmazonLinux2

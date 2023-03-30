@@ -43,6 +43,8 @@ Available Commands:
                                  instance
   upgrade                        Upgrade to the latest version of spotsh
   version                        Print spotsh's version string
+  vpn [<SSHFLAGS>] start         Start VPN session to a spot shell instance
+  vpn [<SSHFLAGS>] stop          Teardown VPN session to a spot shell instance
 
 By default when command is not specified spotsh will attempt to ssh to
 an existing spot shell instance. If a spot shell instance does not
@@ -82,6 +84,8 @@ OPERATING_SYSTEM:
   be specified with the --os flag. The current list of supported
   operating systems is below:
 
+    amzn2023    - Amazon Linux 2023 (standard)
+    amzn2023min - Amazon Linux 2023 (minimal)
     amzn2       - Amazon Linux 2
     ubuntu22.04 - Ubuntu 22.04 LTS
 

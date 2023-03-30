@@ -5,7 +5,7 @@ export GOFLAGS=-mod=vendor
 build: cmd/spotsh
 
 cmd/spotsh: FORCE
-	go build -o spotsh cmd/spotsh/main.go
+	go build -o spotsh cmd/spotsh/*.go
 
 TESTPKGS=github.com/mikeb26/spotsh/internal github.com/mikeb26/spotsh/internal/aws
 

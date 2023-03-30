@@ -46,6 +46,7 @@ var subCommandTab = map[string]func(awsCfg aws.Config, args []string) error{
 	"launch":    launchMain,
 	"scp":       scpMain,
 	"ssh":       sshMain,
+	"vpn":       vpnMain,
 	"terminate": terminateMain,
 	"version":   versionMain,
 	"upgrade":   upgradeMain,
@@ -95,6 +96,8 @@ func infoMain(awsCfg aws.Config, args []string) error {
 			fmt.Printf("\t\tLocalKeyFile: %v\n", lr.LocalKeyFile)
 			fmt.Printf("\t\tCurrentPrice: $%v/hr\n", lr.CurrentPrice)
 			fmt.Printf("\t\tAZName: %v\n", lr.AzName)
+			fmt.Printf("\t\tDNSName: %v\n", lr.DnsName)
+			fmt.Printf("\t\tOs: %v\n", lr.Os.String())
 		}
 	}
 
@@ -286,10 +289,22 @@ func terminateMain(awsCfg aws.Config, args []string) error {
 
 	if selectedResult == nil {
 		if termOpts.instanceId == "" {
-			return fmt.Errorf("No spotssh instances running")
+			return fmt.Errorf("No spotsh instances running")
 		} // else
-		return fmt.Errorf("Could not find spotssh instance w/ id %v",
+		return fmt.Errorf("Could not find spotsh instance w/ id %v",
 			termOpts.instanceId)
+	}
+
+	needVpnTeardown, err := iaws.GetTagValue(awsCfg, selectedResult.InstanceId,
+		iaws.VpnTagKey)
+	if err != nil {
+		return fmt.Errorf("Failed to get vpn tag value: %w", err)
+	}
+	if needVpnTeardown == "true" {
+		err = stopVpnClient(awsCfg, selectedResult)
+		if err != nil {
+			return err
+		}
 	}
 
 	return iaws.TerminateInstance(awsCfg, selectedResult.InstanceId)
@@ -355,7 +370,7 @@ func selectOrLaunchCommon(awsCfg aws.Config, cmdName string, canLaunch bool,
 			newLaunchResult, err = iaws.LaunchEc2Spot(awsCfg, launchArgs)
 			launchResults = append(launchResults, newLaunchResult)
 		} else {
-			err = fmt.Errorf("No spotssh instances running")
+			err = fmt.Errorf("No spotsh instances running")
 		}
 	}
 	if err != nil {
@@ -380,7 +395,7 @@ func selectOrLaunchCommon(awsCfg aws.Config, cmdName string, canLaunch bool,
 	}
 
 	if selectedResult == nil {
-		return nil, fmt.Errorf("Could not find spotssh instance w/ id %v",
+		return nil, fmt.Errorf("Could not find spotsh instance w/ id %v",
 			sshOpts.instanceId)
 	}
 	if selectedResult.LocalKeyFile == "" {
@@ -650,6 +665,21 @@ func configMain(awsCfg aws.Config, args []string) error {
 		return fmt.Errorf("Could not create config directory %v: %w",
 			configDir, err)
 	}
+	err = prefsMain(awsCfg, args)
+	if err != nil {
+		return err
+	}
+	err = setupVpnClientKey(awsCfg, args, configDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to setup vpn client keys; please install wireguard & re-run config to use spotsh's vpn feature: %v\n",
+			err)
+		err = nil
+	}
+
+	return err
+}
+
+func prefsMain(awsCfg aws.Config, args []string) error {
 	configFilePath, err := getConfigPath()
 	if err != nil {
 		return err

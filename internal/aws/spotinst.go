@@ -17,8 +17,13 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 )
 
-const DefaultRootVolSizeInGiB = int32(64)
-const DefaultMaxSpotPrice = "0.08"
+const (
+	UserTagKey              = "spotsh.user"
+	OsTagKey                = "spotsh.os"
+	VpnTagKey               = "spotsh.vpn"
+	DefaultRootVolSizeInGiB = int32(64)
+	DefaultMaxSpotPrice     = "0.08"
+)
 
 var DefaultInstanceTypes = []types.InstanceType{types.InstanceTypeC5aLarge,
 	types.InstanceTypeC5Large,
@@ -29,7 +34,7 @@ var DefaultInstanceTypes = []types.InstanceType{types.InstanceTypeC5aLarge,
 const DefaultOperatingSystem = internal.AmazonLinux2023
 
 type LaunchEc2SpotArgs struct {
-	Os               internal.OperatingSystem // optional; defaults to AmazonLinux2
+	Os               internal.OperatingSystem // optional; defaults to AmazonLinux2023
 	AmiId            string                   // optional; overrides Os; defaults to latest ami for specified Os
 	AmiName          string                   // optional; default is ignored in lieu of AmiId
 	KeyPair          string                   // optional; defaults to spotinst keypair
@@ -51,6 +56,8 @@ type LaunchEc2SpotResult struct {
 	ImageId      string
 	CurrentPrice float64
 	AzName       string
+	DnsName      string
+	Os           internal.OperatingSystem
 }
 
 func LaunchEc2Spot(awsCfg aws.Config,
@@ -156,15 +163,28 @@ func LaunchEc2Spot(awsCfg aws.Config,
 			return launchResult, err
 		}
 	}
-	tagKey := defaultTagKey
-	tagVal := launchResult.User
-	tag := types.Tag{
-		Key:   &tagKey,
-		Value: &tagVal,
+	userTagKey := UserTagKey
+	userTagVal := launchResult.User
+	userTag := types.Tag{
+		Key:   &userTagKey,
+		Value: &userTagVal,
+	}
+	osTagKey := OsTagKey
+	osTagVal := launchArgs.Os.String()
+	launchResult.Os = launchArgs.Os
+	osTag := types.Tag{
+		Key:   &osTagKey,
+		Value: &osTagVal,
+	}
+	vpnTagKey := VpnTagKey
+	vpnTagVal := "false"
+	vpnTag := types.Tag{
+		Key:   &vpnTagKey,
+		Value: &vpnTagVal,
 	}
 	tagSpec := types.TagSpecification{
 		ResourceType: types.ResourceTypeInstance,
-		Tags:         []types.Tag{tag},
+		Tags:         []types.Tag{userTag, osTag, vpnTag},
 	}
 	rootVolSize := launchArgs.RootVolSizeInGiB
 	rootVolName, err := getRootVolName(ctx, ec2Client, amiId)
@@ -269,6 +289,61 @@ func TerminateInstance(awsCfg aws.Config, instanceId string) error {
 	return nil
 }
 
+func UpdateTag(awsCfg aws.Config, instanceId string, key string,
+	value string) error {
+
+	ec2Client := ec2.NewFromConfig(awsCfg)
+
+	tagInput := &ec2.CreateTagsInput{
+		Resources: []string{instanceId},
+		Tags: []types.Tag{
+			{
+				Key:   &key,
+				Value: &value,
+			},
+		},
+	}
+
+	_, err := ec2Client.CreateTags(context.Background(), tagInput)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func GetTagValue(awsCfg aws.Config, instanceId string,
+	key string) (string, error) {
+
+	ec2Client := ec2.NewFromConfig(awsCfg)
+
+	resourceId := "resource-id"
+	keyName := "key"
+	tagInput := &ec2.DescribeTagsInput{
+		Filters: []types.Filter{
+			{
+				Name:   &resourceId,
+				Values: []string{instanceId},
+			},
+			{
+				Name:   &keyName,
+				Values: []string{key},
+			},
+		},
+	}
+
+	tagOutput, err := ec2Client.DescribeTags(context.Background(), tagInput)
+	if err != nil {
+		return "", err
+	}
+
+	if len(tagOutput.Tags) == 0 {
+		return "", nil
+	}
+
+	return *tagOutput.Tags[0].Value, nil
+}
+
 func LookupEc2Spot(awsCfg aws.Config) ([]LaunchEc2SpotResult, error) {
 
 	launchResults := make([]LaunchEc2SpotResult, 0)
@@ -293,45 +368,59 @@ func LookupEc2Spot(awsCfg aws.Config) ([]LaunchEc2SpotResult, error) {
 	azMap := make(map[string]string)
 	var iTypes []types.InstanceType
 
+	var foundSpotShTag bool
+	var user string
+	var os string
 	for _, resv := range descOutput.Reservations {
 		for _, inst := range resv.Instances {
-			for _, tag := range inst.Tags {
-				if inst.State.Name != types.InstanceStateNameRunning ||
-					*tag.Key != defaultTagKey {
-					continue
-				}
-
-				localKeyFile := ""
-				for _, keyItem := range keysResult.Keys {
-					if inst.KeyName != nil && keyItem.Name == *inst.KeyName {
-						localKeyFile = keyItem.LocalKeyFile
-						break
-					}
-				}
-
-				azName, err := getAzNameFromSubnetId(ec2Client, azMap,
-					*inst.SubnetId)
-				if err != nil {
-					return launchResults, err
-				}
-				iTypes = append(iTypes, inst.InstanceType)
-				publicIp := ""
-				if inst.PublicIpAddress != nil {
-					publicIp = *inst.PublicIpAddress
-				}
-				launchResult := LaunchEc2SpotResult{
-					InstanceId:   *inst.InstanceId,
-					PublicIp:     publicIp,
-					User:         *tag.Value,
-					LocalKeyFile: localKeyFile,
-					InstanceType: inst.InstanceType,
-					ImageId:      *inst.ImageId,
-					AzName:       azName,
-					CurrentPrice: 0.00,
-				}
-
-				launchResults = append(launchResults, launchResult)
+			if inst.State.Name != types.InstanceStateNameRunning {
+				continue
 			}
+			foundSpotShTag = false
+			for _, tag := range inst.Tags {
+				if *tag.Key == UserTagKey {
+					foundSpotShTag = true
+					user = *tag.Value
+				} else if *tag.Key == OsTagKey {
+					os = *tag.Value
+				}
+			}
+			if !foundSpotShTag {
+				continue
+			}
+
+			localKeyFile := ""
+			for _, keyItem := range keysResult.Keys {
+				if inst.KeyName != nil && keyItem.Name == *inst.KeyName {
+					localKeyFile = keyItem.LocalKeyFile
+					break
+				}
+			}
+
+			azName, err := getAzNameFromSubnetId(ec2Client, azMap,
+				*inst.SubnetId)
+			if err != nil {
+				return launchResults, err
+			}
+			iTypes = append(iTypes, inst.InstanceType)
+			publicIp := ""
+			if inst.PublicIpAddress != nil {
+				publicIp = *inst.PublicIpAddress
+			}
+			launchResult := LaunchEc2SpotResult{
+				InstanceId:   *inst.InstanceId,
+				PublicIp:     publicIp,
+				User:         user,
+				LocalKeyFile: localKeyFile,
+				InstanceType: inst.InstanceType,
+				ImageId:      *inst.ImageId,
+				AzName:       azName,
+				CurrentPrice: 0.00,
+				DnsName:      *inst.PublicDnsName,
+				Os:           internal.OsFromString(os),
+			}
+
+			launchResults = append(launchResults, launchResult)
 		}
 	}
 

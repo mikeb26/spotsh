@@ -20,8 +20,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 )
 
-const defaultTagKey = "spotsh.user"
-
 func GetDefaultKeyName(awsCfg aws.Config) string {
 	host, err := os.Hostname()
 	if err != nil {

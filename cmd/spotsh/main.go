@@ -324,7 +324,7 @@ func scpMain(awsCfg aws.Config, args []string) error {
 
 	// replace all instances of {s} in remaining args with user@ip
 	userAtPublicIp := selectedResult.User + "@" + selectedResult.PublicIp
-	for idx, _ := range args {
+	for idx := range args {
 		args[idx] = strings.ReplaceAll(args[idx], SpotHostVar, userAtPublicIp)
 	}
 

@@ -433,7 +433,7 @@ func LookupEc2Spot(awsCfg aws.Config) ([]LaunchEc2SpotResult, error) {
 		return launchResults, err
 	}
 
-	for idx, _ := range launchResults {
+	for idx := range launchResults {
 		launchResult := &launchResults[idx]
 		iType := launchResult.InstanceType
 		reg := awsCfg.Region

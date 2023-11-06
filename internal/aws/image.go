@@ -22,26 +22,26 @@ type imageIdEntry struct {
 }
 
 var imageIdTab = []imageIdEntry{
-	internal.OsNone: imageIdEntry{},
-	internal.Ubuntu22_04: imageIdEntry{
+	internal.OsNone: {},
+	internal.Ubuntu22_04: {
 		os:       internal.Ubuntu22_04,
 		desc:     "Ubuntu 22.04 LTS",
 		ssmParam: "/aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp2/ami-id",
 		user:     "ubuntu",
 	},
-	internal.AmazonLinux2: imageIdEntry{
+	internal.AmazonLinux2: {
 		os:       internal.AmazonLinux2,
 		desc:     "Amazon Linux 2",
 		ssmParam: "/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2",
 		user:     "ec2-user",
 	},
-	internal.AmazonLinux2023: imageIdEntry{
+	internal.AmazonLinux2023: {
 		os:       internal.AmazonLinux2023,
 		desc:     "Amazon Linux 2023 (standard)",
 		ssmParam: "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64",
 		user:     "ec2-user",
 	},
-	internal.AmazonLinux2023Min: imageIdEntry{
+	internal.AmazonLinux2023Min: {
 		os:       internal.AmazonLinux2023Min,
 		desc:     "Amazon Linux 2023 (minimal)",
 		ssmParam: "/aws/service/ami-amazon-linux-latest/al2023-ami-minimal-kernel-default-x86_64",

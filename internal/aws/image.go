@@ -166,35 +166,5 @@ func lookupImagesCommon(awsCfg aws.Config,
 		lookupImagesResult.Images[lookupImageItem.Id] = lookupImageItem
 	}
 
-	var osv internal.OperatingSystem
-	amiIds := make([]string, 0)
-
-	for _, os := range osv.Values() {
-		amiId, err := getLatestAmiId(ctx, awsCfg, os)
-		if err != nil {
-			return lookupImagesResult, err
-		}
-		amiIds = append(amiIds, amiId)
-	}
-	descInput = nil
-	descInput = &ec2.DescribeImagesInput{
-		DryRun:   &dryRun,
-		ImageIds: amiIds,
-	}
-	descOutput = nil
-	descOutput, err = ec2Client.DescribeImages(ctx, descInput)
-	if err != nil {
-		return lookupImagesResult, err
-	}
-	for _, imgDesc := range descOutput.Images {
-		lookupImageItem := &LookupImageItem{
-			Name:      *imgDesc.Name,
-			Id:        *imgDesc.ImageId,
-			Ownership: "aws",
-		}
-
-		lookupImagesResult.Images[lookupImageItem.Id] = lookupImageItem
-	}
-
 	return lookupImagesResult, nil
 }

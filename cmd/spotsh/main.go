@@ -75,81 +75,110 @@ func versionMain(awsCfg aws.Config, args []string) error {
 }
 
 func infoMain(awsCfg aws.Config, args []string) error {
-	launchResults, err := iaws.LookupEc2Spot(awsCfg)
+
+	var instances, vpcs, images, keys, all bool
+	f := flag.NewFlagSet("spotsh info", flag.ContinueOnError)
+	f.BoolVar(&instances, "instances", true, "Display spot shell instances")
+	f.BoolVar(&vpcs, "vpcs", false, "Display VPCs")
+	f.BoolVar(&images, "images", false, "Display AMIs")
+	f.BoolVar(&keys, "keys", false, "Display keys")
+	f.BoolVar(&all, "all", false, "Display all")
+
+	err := f.Parse(args)
 	if err != nil {
-		return fmt.Errorf("Failed to lookup instance: %w", err)
+		return err
 	}
 
-	if len(launchResults) == 0 {
-		fmt.Printf("No spot shell instances running\n")
-	} else {
-		fmt.Printf("Spot shell instances:\n")
-		for idx, lr := range launchResults {
-			fmt.Printf("\tInstance[%v]:\n", idx)
-			fmt.Printf("\t\tId: %v\n\t\tPublicIp: %v\n\t\tUser: %v\n",
-				lr.InstanceId, lr.PublicIp, lr.User)
-			if lr.LocalKeyFile == "" {
-				lr.LocalKeyFile = "<not present>"
+	if all {
+		instances = true
+		vpcs = true
+		images = true
+		keys = true
+	}
+
+	if instances {
+		launchResults, err := iaws.LookupEc2Spot(awsCfg)
+		if err != nil {
+			return fmt.Errorf("Failed to lookup instance: %w", err)
+		}
+
+		if len(launchResults) == 0 {
+			fmt.Printf("No spot shell instances running\n")
+		} else {
+			fmt.Printf("Spot shell instances:\n")
+			for idx, lr := range launchResults {
+				fmt.Printf("\tInstance[%v]:\n", idx)
+				fmt.Printf("\t\tId: %v\n\t\tPublicIp: %v\n\t\tUser: %v\n",
+					lr.InstanceId, lr.PublicIp, lr.User)
+				if lr.LocalKeyFile == "" {
+					lr.LocalKeyFile = "<not present>"
+				}
+				fmt.Printf("\t\tType: %v\n", lr.InstanceType)
+				fmt.Printf("\t\tImageId: %v\n", lr.ImageId)
+				fmt.Printf("\t\tLocalKeyFile: %v\n", lr.LocalKeyFile)
+				fmt.Printf("\t\tCurrentPrice: $%v/hr\n", lr.CurrentPrice)
+				fmt.Printf("\t\tAZName: %v\n", lr.AzName)
+				fmt.Printf("\t\tDNSName: %v\n", lr.DnsName)
+				fmt.Printf("\t\tOs: %v\n", lr.Os.String())
 			}
-			fmt.Printf("\t\tType: %v\n", lr.InstanceType)
-			fmt.Printf("\t\tImageId: %v\n", lr.ImageId)
-			fmt.Printf("\t\tLocalKeyFile: %v\n", lr.LocalKeyFile)
-			fmt.Printf("\t\tCurrentPrice: $%v/hr\n", lr.CurrentPrice)
-			fmt.Printf("\t\tAZName: %v\n", lr.AzName)
-			fmt.Printf("\t\tDNSName: %v\n", lr.DnsName)
-			fmt.Printf("\t\tOs: %v\n", lr.Os.String())
 		}
 	}
 
-	vpcSgResults, err := iaws.LookupVpcSecurityGroups(awsCfg)
-	if err != nil {
-		return fmt.Errorf("Failed to lookup security groups: %w", err)
-	}
-	fmt.Printf("Vpcs:\n")
-	idx := 0
-	for vpcId, vpc := range vpcSgResults.Vpcs {
-		fmt.Printf("\tVpc[%v]:\n", idx)
-		fmt.Printf("\t\tId: %v\n", vpcId)
-		fmt.Printf("\t\tDefault: %v\n", vpc.Default)
-		fmt.Printf("\t\tSecurityGroups:\n")
-		idx2 := 0
-		for sgId, sg := range vpc.Sgs {
-			fmt.Printf("\t\t\tSG[%v]:\n", idx2)
-			fmt.Printf("\t\t\t\tId: %v\n", sgId)
-			fmt.Printf("\t\t\t\tName: %v\n", sg.Name)
-			idx2++
+	if vpcs {
+		vpcSgResults, err := iaws.LookupVpcSecurityGroups(awsCfg)
+		if err != nil {
+			return fmt.Errorf("Failed to lookup security groups: %w", err)
 		}
-		idx++
+		fmt.Printf("Vpcs:\n")
+		idx := 0
+		for vpcId, vpc := range vpcSgResults.Vpcs {
+			fmt.Printf("\tVpc[%v]:\n", idx)
+			fmt.Printf("\t\tId: %v\n", vpcId)
+			fmt.Printf("\t\tDefault: %v\n", vpc.Default)
+			fmt.Printf("\t\tSecurityGroups:\n")
+			idx2 := 0
+			for sgId, sg := range vpc.Sgs {
+				fmt.Printf("\t\t\tSG[%v]:\n", idx2)
+				fmt.Printf("\t\t\t\tId: %v\n", sgId)
+				fmt.Printf("\t\t\t\tName: %v\n", sg.Name)
+				idx2++
+			}
+			idx++
+		}
 	}
 
-	keyResults, err := iaws.LookupKeys(awsCfg)
-	if err != nil {
-		return fmt.Errorf("Failed to lookup keys: %w", err)
-	}
-	fmt.Printf("Keys:\n")
-	idx = 0
-	for keyId, key := range keyResults.Keys {
-		fmt.Printf("\tKey[%v]:\n", idx)
-		fmt.Printf("\t\tId: %v\n", keyId)
-		fmt.Printf("\t\tName: %v\n", key.Name)
-		if key.LocalKeyFile != "" {
-			fmt.Printf("\t\tLocal: %v\n", key.LocalKeyFile)
+	if keys {
+		keyResults, err := iaws.LookupKeys(awsCfg)
+		if err != nil {
+			return fmt.Errorf("Failed to lookup keys: %w", err)
 		}
-		idx++
+		fmt.Printf("Keys:\n")
+		idx := 0
+		for keyId, key := range keyResults.Keys {
+			fmt.Printf("\tKey[%v]:\n", idx)
+			fmt.Printf("\t\tId: %v\n", keyId)
+			fmt.Printf("\t\tName: %v\n", key.Name)
+			if key.LocalKeyFile != "" {
+				fmt.Printf("\t\tLocal: %v\n", key.LocalKeyFile)
+			}
+			idx++
+		}
 	}
 
-	imageResults, err := iaws.LookupImages(awsCfg)
-	if err != nil {
-		return fmt.Errorf("Failed to lookup images: %w", err)
-	}
-	fmt.Printf("Images:\n")
-	idx = 0
-	for imageId, image := range imageResults.Images {
-		fmt.Printf("\tImages[%v]:\n", idx)
-		fmt.Printf("\t\tId: %v\n", imageId)
-		fmt.Printf("\t\tName: %v\n", image.Name)
-		fmt.Printf("\t\tOwnership: %v\n", image.Ownership)
-		idx++
+	if images {
+		imageResults, err := iaws.LookupImages(awsCfg)
+		if err != nil {
+			return fmt.Errorf("Failed to lookup images: %w", err)
+		}
+		fmt.Printf("Images:\n")
+		idx := 0
+		for imageId, image := range imageResults.Images {
+			fmt.Printf("\tImages[%v]:\n", idx)
+			fmt.Printf("\t\tId: %v\n", imageId)
+			fmt.Printf("\t\tName: %v\n", image.Name)
+			fmt.Printf("\t\tOwnership: %v\n", image.Ownership)
+			idx++
+		}
 	}
 
 	return nil

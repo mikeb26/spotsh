@@ -32,8 +32,8 @@ Usage:
 Available Commands:
   config                         Set spotsh default preferences
   help                           This help screen
-  info                           List spot shell instances, security
-                                 groups, and available key pairs
+  info [<INFOFLAGS>]             List spot shell instances, security
+                                 groups, and/or available key pairs
   launch [<LAUNCHFLAGS>]         Launch a new spot shell instance
   price [<PRICEFLAGS>]           Display spot prices
   ssh [<SSHFLAGS>]               ssh to an existing spot shell instance
@@ -78,6 +78,14 @@ GLOBALFLAGS:                                    | DEFAULT
 PRICEFLAGS:                                     | DEFAULT
   --types <instance_type>[,<instance_type>...]  | c5a.large,c5.large,\
                                                   c6i.large,c6a.large
+
+INFOFLAGS:                                      | DEFAULT
+  --instances                                   | true
+  --keys                                        | false
+  --vpcs                                        | false
+  --images                                      | false
+  --all                                         | false; (alias for --instances\
+                                                  --keys --vpcs --images)
 
 OPERATING_SYSTEM:
   When launching an instance the operating system to launch with can

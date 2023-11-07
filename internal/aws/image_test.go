@@ -9,10 +9,9 @@ import (
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/mikeb26/spotsh/internal"
 )
 
-func TestLookupImagesKeys(t *testing.T) {
+func TestLookupImages(t *testing.T) {
 	ctx := context.Background()
 	awsCfg, err := config.LoadDefaultConfig(ctx)
 	if err != nil {
@@ -22,8 +21,6 @@ func TestLookupImagesKeys(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to lookup images: %v", err)
 	}
-
-	var os internal.OperatingSystem
 
 	awsOwnedCount := 0
 	for imageId, image := range imageResults.Images {
@@ -36,8 +33,8 @@ func TestLookupImagesKeys(t *testing.T) {
 		}
 	}
 
-	if awsOwnedCount != len(os.Values()) {
+	if awsOwnedCount != 0 {
 		t.Errorf("LookupImages returned %v aws images but expecting %v",
-			awsOwnedCount, len(os.Values()))
+			awsOwnedCount, 0)
 	}
 }

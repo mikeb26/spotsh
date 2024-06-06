@@ -47,6 +47,12 @@ var imageIdTab = []imageIdEntry{
 		ssmParam: "/aws/service/ami-amazon-linux-latest/al2023-ami-minimal-kernel-default-x86_64",
 		user:     "ec2-user",
 	},
+	internal.Debian12: {
+		os:       internal.Debian12,
+		desc:     "Debian GNU/Linux 12",
+		ssmParam: "/aws/service/debian/release/12/latest/amd64",
+		user:     "admin",
+	},
 }
 
 func GetImageDesc(os internal.OperatingSystem) string {

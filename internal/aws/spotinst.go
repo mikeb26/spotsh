@@ -25,7 +25,7 @@ const (
 	DefaultMaxSpotPrice     = "0.08"
 )
 
-var DefaultInstanceTypes = []types.InstanceType{types.InstanceTypeC5aLarge,
+var DefaultInstanceTypes = []types.InstanceType{
 	types.InstanceTypeC5Large,
 	types.InstanceTypeC5aLarge,
 	types.InstanceTypeC6iLarge,

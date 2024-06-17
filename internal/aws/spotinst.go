@@ -27,8 +27,12 @@ const (
 
 var DefaultInstanceTypes = []types.InstanceType{types.InstanceTypeC5aLarge,
 	types.InstanceTypeC5Large,
+	types.InstanceTypeC5aLarge,
 	types.InstanceTypeC6iLarge,
 	types.InstanceTypeC6aLarge,
+	types.InstanceTypeC7iLarge,
+	types.InstanceTypeC7aLarge,
+	types.InstanceTypeC7iFlexLarge,
 }
 
 const DefaultOperatingSystem = internal.AmazonLinux2023

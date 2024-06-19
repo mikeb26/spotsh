@@ -97,7 +97,7 @@ func infoMain(awsCfg aws.Config, args []string) error {
 	}
 
 	if instances {
-		launchResults, err := iaws.LookupEc2Spot(awsCfg)
+		launchResults, err := iaws.LookupEc2Spot(context.Background(), awsCfg)
 		if err != nil {
 			return fmt.Errorf("Failed to lookup instance: %w", err)
 		}
@@ -294,7 +294,7 @@ func terminateMain(awsCfg aws.Config, args []string) error {
 		return err
 	}
 
-	launchResults, err := iaws.LookupEc2Spot(awsCfg)
+	launchResults, err := iaws.LookupEc2Spot(context.Background(), awsCfg)
 	if err != nil {
 		return fmt.Errorf("Failed to lookup instance: %w", err)
 	}
@@ -387,7 +387,7 @@ func selectOrLaunchCommon(awsCfg aws.Config, cmdName string, canLaunch bool,
 		return nil, err
 	}
 
-	launchResults, err := iaws.LookupEc2Spot(awsCfg)
+	launchResults, err := iaws.LookupEc2Spot(context.Background(), awsCfg)
 	if err == nil && len(launchResults) == 0 {
 		if canLaunch {
 			launchArgs, err := newLaunchArgsFromPrefs(awsCfg)

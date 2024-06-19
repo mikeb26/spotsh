@@ -8,11 +8,14 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/mikeb26/spotsh/internal"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 )
@@ -348,7 +351,54 @@ func GetTagValue(awsCfg aws.Config, instanceId string,
 	return *tagOutput.Tags[0].Value, nil
 }
 
-func LookupEc2Spot(awsCfg aws.Config) ([]LaunchEc2SpotResult, error) {
+func LookupEc2Spot(ctx context.Context,
+	awsCfgIn aws.Config) ([]LaunchEc2SpotResult, error) {
+
+	var err error
+	var regionList []string
+	resultsAllRegions := make([]LaunchEc2SpotResult, 0)
+
+	if awsCfgIn.Region == "all" {
+		regionList, err = getRegions()
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		regionList = []string{awsCfgIn.Region}
+	}
+
+	var wg errgroup.Group
+	var resultLock sync.Mutex
+
+	for _, curReg := range regionList {
+		curReg := curReg // https://golang.org/doc/faq#closures_and_goroutines
+		wg.Go(func() error {
+			awsCfgTmp, err := config.LoadDefaultConfig(ctx,
+				config.WithRegion(curReg))
+			if err != nil {
+				return err
+			}
+			resultsOneRegion, err := lookupEc2SpotOneRegion(awsCfgTmp)
+			if err != nil {
+				return err
+			}
+			resultLock.Lock()
+			resultsAllRegions = append(resultsAllRegions, resultsOneRegion...)
+			resultLock.Unlock()
+
+			return nil
+		})
+	}
+
+	err = wg.Wait()
+	if err != nil {
+		return nil, err
+	}
+
+	return resultsAllRegions, nil
+}
+
+func lookupEc2SpotOneRegion(awsCfg aws.Config) ([]LaunchEc2SpotResult, error) {
 
 	launchResults := make([]LaunchEc2SpotResult, 0)
 

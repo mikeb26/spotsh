@@ -7,15 +7,120 @@ package aws
 import (
 	"context"
 	"fmt"
+	"io/ioutil"
+	"net/http"
+	"os"
+	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 )
 
 func GetDefaultSecurityGroupId(awsCfg aws.Config) (string, error) {
 	ec2Client := ec2.NewFromConfig(awsCfg)
 
 	return getDefaultSecurityGroupId(awsCfg, ec2Client)
+}
+
+func getExternalIP() (string, error) {
+	resp, err := http.Get("https://api.ipify.org?format=text")
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("failed to get external IP: %s", resp.Status)
+	}
+
+	ip, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	return string(ip), nil
+}
+
+func addSshIngressRule(ctx context.Context, host string, ec2Client *ec2.Client,
+	sgId string) error {
+
+	myIp, err := getExternalIP()
+	if err != nil {
+		return err
+	}
+	cidrBlock := fmt.Sprintf("%v/32", myIp)
+	permissions := []types.IpPermission{
+		{
+			IpProtocol: aws.String("tcp"),
+			FromPort:   aws.Int32(22),
+			ToPort:     aws.Int32(22),
+			IpRanges: []types.IpRange{
+				{
+					CidrIp:      aws.String(cidrBlock),
+					Description: aws.String(fmt.Sprintf("allow ssh from %v (added by spotsh)", host)),
+				},
+			},
+		},
+	}
+
+	input := &ec2.AuthorizeSecurityGroupIngressInput{
+		GroupId:       aws.String(sgId),
+		IpPermissions: permissions,
+	}
+
+	_, err = ec2Client.AuthorizeSecurityGroupIngress(ctx, input)
+	return err
+}
+
+func hasSshIngressRule(ctx context.Context, host string, ec2Client *ec2.Client,
+	sgId string) bool {
+
+	input := &ec2.DescribeSecurityGroupsInput{
+		GroupIds: []string{sgId},
+	}
+
+	resp, err := ec2Client.DescribeSecurityGroups(ctx, input)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to get security groups: %v", err)
+		return false
+	}
+
+	for _, sg := range resp.SecurityGroups {
+		for _, perm := range sg.IpPermissions {
+			for _, descr := range perm.IpRanges {
+				if strings.Contains(*descr.Description, "ssh") &&
+					strings.Contains(*descr.Description, host) {
+					return true
+				}
+			}
+
+			for _, descr := range perm.Ipv6Ranges {
+				if strings.Contains(*descr.Description, "ssh") &&
+					strings.Contains(*descr.Description, host) {
+					return true
+				}
+			}
+		}
+	}
+
+	return false
+}
+
+func CheckOrAddSshIngressRule(awsCfg aws.Config, sgId string) error {
+	ec2Client := ec2.NewFromConfig(awsCfg)
+	host, err := os.Hostname()
+	if err != nil {
+		host = "localhost"
+	}
+
+	ctx := context.Background()
+
+	if hasSshIngressRule(ctx, host, ec2Client, sgId) {
+		return nil
+	}
+
+	return addSshIngressRule(context.Background(), host, ec2Client, sgId)
 }
 
 func getDefaultSecurityGroupId(awsCfg aws.Config,

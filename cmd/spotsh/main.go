@@ -12,6 +12,7 @@ import (
 	"flag"
 	"fmt"
 	"io/ioutil"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -343,23 +344,30 @@ func sshMain(awsCfg aws.Config, args []string) error {
 	return sshCommon(awsCfg, false, args)
 }
 
+func getCommonSshArgs(cmd string,
+	selectedInstance *iaws.LaunchEc2SpotResult) []string {
+
+	return []string{cmd, "-i", selectedInstance.LocalKeyFile, "-o",
+		"StrictHostKeyChecking=no", "-o", "ConnectTimeout=5", "-o",
+		"UserKnownHostsFile=/dev/null",
+		selectedInstance.User + "@" + selectedInstance.PublicIp}
+}
+
 func scpMain(awsCfg aws.Config, args []string) error {
 	const SpotHostVar = "{s}"
 
-	selectedResult, err := selectOrLaunchCommon(awsCfg, "spotsh scp", false, &args)
+	selectedInstance, err := selectOrLaunchCommon(awsCfg, "spotsh scp", false, &args)
 	if err != nil {
 		return err
 	}
 
 	// replace all instances of {s} in remaining args with user@ip
-	userAtPublicIp := selectedResult.User + "@" + selectedResult.PublicIp
+	userAtPublicIp := selectedInstance.User + "@" + selectedInstance.PublicIp
 	for idx := range args {
 		args[idx] = strings.ReplaceAll(args[idx], SpotHostVar, userAtPublicIp)
 	}
 
-	scpArgs := []string{"scp", "-i", selectedResult.LocalKeyFile, "-o",
-		"StrictHostKeyChecking=no",
-	}
+	scpArgs := getCommonSshArgs("scp", selectedInstance)
 	if len(args) > 0 {
 		scpArgs = append(scpArgs, args...)
 	}
@@ -396,6 +404,9 @@ func selectOrLaunchCommon(awsCfg aws.Config, cmdName string, canLaunch bool,
 			}
 			var newLaunchResult iaws.LaunchEc2SpotResult
 
+			fmt.Fprintf(os.Stderr, "Launching new spot instance in %v...\n",
+				awsCfg.Region)
+
 			newLaunchResult, err = iaws.LaunchEc2Spot(awsCfg, launchArgs)
 			launchResults = append(launchResults, newLaunchResult)
 		} else {
@@ -415,47 +426,123 @@ func selectOrLaunchCommon(awsCfg aws.Config, cmdName string, canLaunch bool,
 		return nil, fmt.Errorf("%v", errStr)
 	}
 
-	var selectedResult *iaws.LaunchEc2SpotResult
+	var selectedInstance *iaws.LaunchEc2SpotResult
 	for idx, lr := range launchResults {
 		if sshOpts.instanceId == "" || sshOpts.instanceId == lr.InstanceId {
-			selectedResult = &launchResults[idx]
+			selectedInstance = &launchResults[idx]
 			break
 		}
 	}
 
-	if selectedResult == nil {
+	if selectedInstance == nil {
 		return nil, fmt.Errorf("Could not find spotsh instance w/ id %v",
 			sshOpts.instanceId)
 	}
-	if selectedResult.LocalKeyFile == "" {
+	if selectedInstance.LocalKeyFile == "" {
 		return nil, fmt.Errorf("Could not find local ssh key for instance w/ id %v",
-			selectedResult.InstanceId)
+			selectedInstance.InstanceId)
 	}
 
 	*args = f.Args()
-	return selectedResult, nil
+	return selectedInstance, nil
 }
 
 func sshCommon(awsCfg aws.Config, canLaunch bool, args []string) error {
-	selectedResult, err := selectOrLaunchCommon(awsCfg, "spotsh ssh", canLaunch,
+	selectedInstance, err := selectOrLaunchCommon(awsCfg, "spotsh ssh", canLaunch,
 		&args)
 	if err != nil {
 		return err
 	}
 
-	sshArgs := []string{"ssh", "-i", selectedResult.LocalKeyFile, "-o",
-		"StrictHostKeyChecking=no",
-		selectedResult.User + "@" + selectedResult.PublicIp}
+	var checkFirewall bool
+
+	err = testSsh(selectedInstance, &checkFirewall)
+	if err != nil {
+		if checkFirewall {
+			fmt.Fprintf(os.Stderr, "Checking or adding ssh ingress rule for security group id %v...\n",
+				selectedInstance.SgId)
+			ferr := iaws.CheckOrAddSshIngressRule(awsCfg, selectedInstance.SgId)
+			if ferr != nil {
+				return fmt.Errorf("Failed to ssh err:%w ingress_add_err:%v",
+					err, ferr)
+			}
+			err = testSsh(selectedInstance, &checkFirewall)
+		}
+
+		if err != nil {
+			return fmt.Errorf("Failed to open ssh port: %w\n", err)
+		}
+	}
+
+	return execSsh(selectedInstance, args)
+}
+
+func execSsh(selectedInstance *iaws.LaunchEc2SpotResult, args []string) error {
+	sshArgs := getCommonSshArgs("ssh", selectedInstance)
 	if len(args) > 0 {
 		sshArgs = append(sshArgs, args...)
 	}
-	fmt.Printf("exec %v\n", sshArgs)
 
-	err = syscall.Exec("/usr/bin/ssh", sshArgs, os.Environ())
+	fmt.Fprintf(os.Stderr, "exec %v\n", sshArgs)
+
+	err := syscall.Exec("/usr/bin/ssh", sshArgs, os.Environ())
 	if err != nil {
-		return fmt.Errorf("Failed to ssh: %w\n", err)
+		return fmt.Errorf("Failed to exec ssh: %w\n", err)
 	}
 
+	return nil
+}
+
+func testSsh(selectedInstance *iaws.LaunchEc2SpotResult,
+	checkFirewallOut *bool) error {
+
+	var err error
+	var checkFirewall bool
+
+	fmt.Fprintf(os.Stderr, "Testing ssh connectivity to %v... ",
+		selectedInstance.PublicIp)
+
+	for retries := 8; retries >= 0; retries-- {
+		fmt.Fprintf(os.Stderr, ".")
+
+		checkFirewall = false
+		err = testSshOnce(selectedInstance)
+		if err == nil {
+			break
+		}
+
+		if errors.Is(err, syscall.ECONNREFUSED) {
+			// instance booted, but ssh isn't up yet
+		} else if nerr, ok := err.(net.Error); ok && nerr.Timeout() {
+			// instance still booting or firewall doesn't allow us to connect
+			checkFirewall = true
+		} else {
+			// unknown reason; don't bother retrying
+			break
+		}
+
+		time.Sleep(time.Second)
+	}
+
+	*checkFirewallOut = checkFirewall
+
+	if err == nil {
+		fmt.Fprintf(os.Stderr, "ok\n")
+	} else {
+		fmt.Fprintf(os.Stderr, "failed\n")
+	}
+
+	return err
+}
+
+func testSshOnce(selectedInstance *iaws.LaunchEc2SpotResult) error {
+	conn, err := net.DialTimeout("tcp",
+		net.JoinHostPort(selectedInstance.PublicIp, "22"), 5*time.Second)
+	if err != nil {
+		return err
+	}
+
+	conn.Close()
 	return nil
 }
 

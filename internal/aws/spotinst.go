@@ -65,6 +65,7 @@ type LaunchEc2SpotResult struct {
 	AzName       string
 	DnsName      string
 	Os           internal.OperatingSystem
+	SgId         string
 }
 
 func LaunchEc2Spot(awsCfg aws.Config,
@@ -170,6 +171,7 @@ func LaunchEc2Spot(awsCfg aws.Config,
 			return launchResult, err
 		}
 	}
+	launchResult.SgId = sgId
 	userTagKey := UserTagKey
 	userTagVal := launchResult.User
 	userTag := types.Tag{
@@ -472,6 +474,7 @@ func lookupEc2SpotOneRegion(awsCfg aws.Config) ([]LaunchEc2SpotResult, error) {
 				CurrentPrice: 0.00,
 				DnsName:      *inst.PublicDnsName,
 				Os:           internal.OsFromString(os),
+				SgId:         *inst.SecurityGroups[0].GroupId,
 			}
 
 			launchResults = append(launchResults, launchResult)

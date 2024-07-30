@@ -53,6 +53,12 @@ var imageIdTab = []imageIdEntry{
 		ssmParam: "/aws/service/debian/release/12/latest/amd64",
 		user:     "admin",
 	},
+	internal.Ubuntu24_04: {
+		os:       internal.Ubuntu24_04,
+		desc:     "Ubuntu 24.04 LTS",
+		ssmParam: "/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id",
+		user:     "ubuntu",
+	},
 }
 
 func GetImageDesc(os internal.OperatingSystem) string {

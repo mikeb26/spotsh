@@ -96,6 +96,8 @@ OPERATING_SYSTEM:
     amzn2023min - Amazon Linux 2023 (minimal)
     amzn2       - Amazon Linux 2
     ubuntu22.04 - Ubuntu 22.04 LTS
+    ubuntu24.04 - Ubuntu 24.04 LTS
+    debian12    - Debian GNU/Linux 12
 
 SCP_ARGS:
   With 1 exception SCP_ARGS are passed directly to scp. See SCP(1) for

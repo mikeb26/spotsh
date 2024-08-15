@@ -21,6 +21,7 @@ Available Commands:
   version                        Print spotsh's version string
   vpn [<SSHFLAGS>] start         Start VPN session to a spot shell instance
   vpn [<SSHFLAGS>] stop          Teardown VPN session to a spot shell instance
+  image [<IMAGEFLAGS>]           Create an AMI from an existing spot shell instance
 
 By default when command is not specified spotsh will attempt to ssh to
 an existing spot shell instance. If a spot shell instance does not
@@ -62,6 +63,12 @@ INFOFLAGS:                                      | DEFAULT
   --images                                      | false
   --all                                         | false; (alias for --instances\
                                                   --keys --vpcs --images)
+
+IMAGEFLAGS:                                     | DEFAULT
+  --instance-id <EC2_instance_id>               | existing spotsh
+                                                  instance if running
+  --name                                        | none
+  --desc                                        | none
 
 OPERATING_SYSTEM:
   When launching an instance the operating system to launch with can

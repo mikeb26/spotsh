@@ -1,4 +1,4 @@
-/* Copyright © 2022 Mike Brown. All Rights Reserved.
+/* Copyright © 2022-2024 Mike Brown. All Rights Reserved.
  *
  * See LICENSE file at the root of this package for license terms
  */
@@ -179,4 +179,27 @@ func lookupImagesCommon(awsCfg aws.Config,
 	}
 
 	return lookupImagesResult, nil
+}
+
+func CreateImage(awsCfg aws.Config, instanceId string, name string,
+	desc string) (string, error) {
+
+	ec2Client := ec2.NewFromConfig(awsCfg)
+
+	input := &ec2.CreateImageInput{
+		InstanceId: aws.String(instanceId),
+	}
+	if name != "" {
+		input.Name = aws.String(name)
+	}
+	if desc != "" {
+		input.Description = aws.String(desc)
+	}
+
+	result, err := ec2Client.CreateImage(context.Background(), input)
+	if err != nil {
+		return "", err
+	}
+
+	return *result.ImageId, nil
 }

@@ -1,4 +1,4 @@
-/* Copyright © 2022 Mike Brown. All Rights Reserved.
+/* Copyright © 2022-2024 Mike Brown. All Rights Reserved.
  *
  * See LICENSE file at the root of this package for license terms
  */
@@ -40,7 +40,7 @@ var teardownVpnClientText string
 
 func vpnMain(awsCfg aws.Config, args []string) error {
 	fmt.Fprintf(os.Stderr, "Selecting or launching spot instance...\n")
-	selectedResult, err := selectOrLaunchCommon(awsCfg, "spotsh vpn", false,
+	selectedResult, err := selectOrLaunchWithArgs(awsCfg, "spotsh vpn", false,
 		&args)
 	if err != nil {
 		return err

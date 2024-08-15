@@ -1,4 +1,4 @@
-/* Copyright © 2022 Mike Brown. All Rights Reserved.
+/* Copyright © 2022-2024 Mike Brown. All Rights Reserved.
  *
  * See LICENSE file at the root of this package for license terms
  */
@@ -46,6 +46,7 @@ var subCommandTab = map[string]func(awsCfg aws.Config, args []string) error{
 	"ls":        infoMain, // alias for info
 	"launch":    launchMain,
 	"scp":       scpMain,
+	"image":     imageMain,
 	"ssh":       sshMain,
 	"vpn":       vpnMain,
 	"terminate": terminateMain,
@@ -284,60 +285,25 @@ func stringSlice2iTypeSlice(iTypesStr []string) []types.InstanceType {
 }
 
 func terminateMain(awsCfg aws.Config, args []string) error {
-	termOpts := struct {
-		instanceId string
-	}{}
-
-	f := flag.NewFlagSet("spotsh terminate", flag.ContinueOnError)
-	f.StringVar(&termOpts.instanceId, "instance-id", "", "EC2 instance id")
-	err := f.Parse(args)
+	selectedInstance, err := selectOrLaunchWithArgs(awsCfg, "spotsh terminate",
+		false, &args)
 	if err != nil {
 		return err
 	}
 
-	launchResults, err := iaws.LookupEc2Spot(context.Background(), awsCfg)
-	if err != nil {
-		return fmt.Errorf("Failed to lookup instance: %w", err)
-	}
-
-	if len(launchResults) > 1 && termOpts.instanceId == "" {
-		errStr := "Multiple spotsh instances found; please disambiguate w/ --instance-id:"
-		for _, lr := range launchResults {
-			errStr = fmt.Sprintf("%v\n\t%v:%v", errStr, lr.InstanceId,
-				lr.PublicIp)
-		}
-		return fmt.Errorf("%v", errStr)
-	}
-
-	var selectedResult *iaws.LaunchEc2SpotResult
-	for idx, lr := range launchResults {
-		if termOpts.instanceId == "" || termOpts.instanceId == lr.InstanceId {
-			selectedResult = &launchResults[idx]
-			break
-		}
-	}
-
-	if selectedResult == nil {
-		if termOpts.instanceId == "" {
-			return fmt.Errorf("No spotsh instances running")
-		} // else
-		return fmt.Errorf("Could not find spotsh instance w/ id %v",
-			termOpts.instanceId)
-	}
-
-	needVpnTeardown, err := iaws.GetTagValue(awsCfg, selectedResult.InstanceId,
+	needVpnTeardown, err := iaws.GetTagValue(awsCfg, selectedInstance.InstanceId,
 		iaws.VpnTagKey)
 	if err != nil {
 		return fmt.Errorf("Failed to get vpn tag value: %w", err)
 	}
 	if needVpnTeardown == "true" {
-		err = stopVpnClient(awsCfg, selectedResult)
+		err = stopVpnClient(awsCfg, selectedInstance)
 		if err != nil {
 			return err
 		}
 	}
 
-	return iaws.TerminateInstance(awsCfg, selectedResult.InstanceId)
+	return iaws.TerminateInstance(awsCfg, selectedInstance.InstanceId)
 }
 
 func sshMain(awsCfg aws.Config, args []string) error {
@@ -349,14 +315,13 @@ func getCommonSshArgs(cmd string,
 
 	return []string{cmd, "-i", selectedInstance.LocalKeyFile, "-o",
 		"StrictHostKeyChecking=no", "-o", "ConnectTimeout=5", "-o",
-		"UserKnownHostsFile=/dev/null",
-		selectedInstance.User + "@" + selectedInstance.PublicIp}
+		"UserKnownHostsFile=/dev/null"}
 }
 
 func scpMain(awsCfg aws.Config, args []string) error {
 	const SpotHostVar = "{s}"
 
-	selectedInstance, err := selectOrLaunchCommon(awsCfg, "spotsh scp", false, &args)
+	selectedInstance, err := selectOrLaunchWithArgs(awsCfg, "spotsh scp", false, &args)
 	if err != nil {
 		return err
 	}
@@ -381,7 +346,35 @@ func scpMain(awsCfg aws.Config, args []string) error {
 	return nil
 }
 
-func selectOrLaunchCommon(awsCfg aws.Config, cmdName string, canLaunch bool,
+func imageMain(awsCfg aws.Config, args []string) error {
+	var name, desc, instanceId string
+	f := flag.NewFlagSet("spotsh image", flag.ContinueOnError)
+	f.StringVar(&name, "name", "", "The name of the AMI to be created")
+	f.StringVar(&desc, "desc", "", "The description of the AMI to be created")
+	f.StringVar(&instanceId, "instance-id", "", "EC2 instance id")
+
+	err := f.Parse(args)
+	if err != nil {
+		return err
+	}
+
+	selectedInstance, err := selectOrLaunch(awsCfg, false, instanceId)
+	if err != nil {
+		return err
+	}
+
+	amiId, err := iaws.CreateImage(awsCfg, instanceId, name, desc)
+	if err != nil {
+		return fmt.Errorf("Failed to create AMI: %w", err)
+	}
+
+	fmt.Printf("Created AMI %v from instance %v\n", amiId,
+		selectedInstance.InstanceId)
+
+	return nil
+}
+
+func selectOrLaunchWithArgs(awsCfg aws.Config, cmdName string, canLaunch bool,
 	args *[]string) (*iaws.LaunchEc2SpotResult, error) {
 
 	sshOpts := struct {
@@ -394,6 +387,13 @@ func selectOrLaunchCommon(awsCfg aws.Config, cmdName string, canLaunch bool,
 	if err != nil {
 		return nil, err
 	}
+
+	*args = f.Args()
+	return selectOrLaunch(awsCfg, canLaunch, sshOpts.instanceId)
+}
+
+func selectOrLaunch(awsCfg aws.Config, canLaunch bool,
+	instanceId string) (*iaws.LaunchEc2SpotResult, error) {
 
 	launchResults, err := iaws.LookupEc2Spot(context.Background(), awsCfg)
 	if err == nil && len(launchResults) == 0 {
@@ -417,7 +417,7 @@ func selectOrLaunchCommon(awsCfg aws.Config, cmdName string, canLaunch bool,
 		return nil, fmt.Errorf("Failed to lookup/launch instance: %w", err)
 	}
 
-	if len(launchResults) > 1 && sshOpts.instanceId == "" {
+	if len(launchResults) > 1 && instanceId == "" {
 		errStr := "Multiple spotsh instances found; please disambiguate w/ --instance-id:"
 		for _, lr := range launchResults {
 			errStr = fmt.Sprintf("%v\n\t%v:%v", errStr, lr.InstanceId,
@@ -428,7 +428,7 @@ func selectOrLaunchCommon(awsCfg aws.Config, cmdName string, canLaunch bool,
 
 	var selectedInstance *iaws.LaunchEc2SpotResult
 	for idx, lr := range launchResults {
-		if sshOpts.instanceId == "" || sshOpts.instanceId == lr.InstanceId {
+		if instanceId == "" || instanceId == lr.InstanceId {
 			selectedInstance = &launchResults[idx]
 			break
 		}
@@ -436,19 +436,18 @@ func selectOrLaunchCommon(awsCfg aws.Config, cmdName string, canLaunch bool,
 
 	if selectedInstance == nil {
 		return nil, fmt.Errorf("Could not find spotsh instance w/ id %v",
-			sshOpts.instanceId)
+			instanceId)
 	}
 	if selectedInstance.LocalKeyFile == "" {
 		return nil, fmt.Errorf("Could not find local ssh key for instance w/ id %v",
 			selectedInstance.InstanceId)
 	}
 
-	*args = f.Args()
 	return selectedInstance, nil
 }
 
 func sshCommon(awsCfg aws.Config, canLaunch bool, args []string) error {
-	selectedInstance, err := selectOrLaunchCommon(awsCfg, "spotsh ssh", canLaunch,
+	selectedInstance, err := selectOrLaunchWithArgs(awsCfg, "spotsh ssh", canLaunch,
 		&args)
 	if err != nil {
 		return err
@@ -479,6 +478,8 @@ func sshCommon(awsCfg aws.Config, canLaunch bool, args []string) error {
 
 func execSsh(selectedInstance *iaws.LaunchEc2SpotResult, args []string) error {
 	sshArgs := getCommonSshArgs("ssh", selectedInstance)
+	sshArgs = append(sshArgs, selectedInstance.User+"@"+selectedInstance.PublicIp)
+
 	if len(args) > 0 {
 		sshArgs = append(sshArgs, args...)
 	}

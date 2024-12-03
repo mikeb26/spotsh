@@ -1,4 +1,4 @@
-/* Copyright © 2022 Mike Brown. All Rights Reserved.
+/* Copyright © 2022-2024 Mike Brown. All Rights Reserved.
  *
  * See LICENSE file at the root of this package for license terms
  */
@@ -26,6 +26,7 @@ const (
 	VpnTagKey               = "spotsh.vpn"
 	DefaultRootVolSizeInGiB = int32(64)
 	DefaultMaxSpotPrice     = "0.08"
+	LaunchTemplateName      = "spotsh"
 )
 
 var DefaultInstanceTypes = []types.InstanceType{
@@ -77,43 +78,71 @@ func LaunchEc2Spot(awsCfg aws.Config,
 
 	var launchResult LaunchEc2SpotResult
 	ec2Client := ec2.NewFromConfig(awsCfg)
+	ctx := context.Background()
+	templateId, err := createLaunchTemplate(ctx, awsCfg, ec2Client, launchArgs,
+		&launchResult)
+	if err != nil {
+		err = fmt.Errorf("failed to create launch template: %w\n", err)
+		return launchResult, err
+	}
+
+	err = runInstance(ctx, awsCfg, ec2Client, templateId, launchArgs,
+		&launchResult)
+
+	return launchResult, err
+}
+
+func createLaunchTemplate(ctx context.Context, awsCfg aws.Config,
+	ec2Client *ec2.Client, launchArgs *LaunchEc2SpotArgs,
+	launchResult *LaunchEc2SpotResult) (string, error) {
+
+	descInput := &ec2.DescribeLaunchTemplatesInput{
+		LaunchTemplateNames: []string{LaunchTemplateName},
+	}
+	descOuput, err := ec2Client.DescribeLaunchTemplates(ctx, descInput)
+	if err == nil && len(descOuput.LaunchTemplates) > 0 {
+		deleteInput := &ec2.DeleteLaunchTemplateInput{
+			LaunchTemplateId: aws.String(*descOuput.LaunchTemplates[0].LaunchTemplateId),
+		}
+		_, err := ec2Client.DeleteLaunchTemplate(ctx, deleteInput)
+		if err != nil {
+			return "", err
+		}
+	}
 
 	spotPrice := launchArgs.MaxSpotPrice
 	if spotPrice == "" {
 		spotPrice = DefaultMaxSpotPrice
 	}
-	spotOpts := &types.SpotMarketOptions{
+	spotOpts := &types.LaunchTemplateSpotMarketOptionsRequest{
 		InstanceInterruptionBehavior: types.InstanceInterruptionBehaviorTerminate,
 		MaxPrice:                     &spotPrice,
 		SpotInstanceType:             types.SpotInstanceTypeOneTime,
 	}
-	marketOpts := &types.InstanceMarketOptionsRequest{
+	marketOpts := &types.LaunchTemplateInstanceMarketOptionsRequest{
 		MarketType:  types.MarketTypeSpot,
 		SpotOptions: spotOpts,
 	}
 
-	iamOpts := &types.IamInstanceProfileSpecification{}
+	iamOpts := &types.LaunchTemplateIamInstanceProfileSpecificationRequest{}
 	if launchArgs.AttachRoleName != "" {
 		iamOpts.Name = &launchArgs.AttachRoleName
 	} else {
 		iamOpts = nil
 	}
-	maxCount := int32(1)
-	minCount := int32(1)
 
-	ctx := context.Background()
 	var keyName *string
 	if launchArgs.KeyPair != "" {
 		keyName = &launchArgs.KeyPair
 	} else {
 		haveDefaultKey, err := haveDefaultKeyPair(ctx, awsCfg)
 		if err != nil {
-			return launchResult, err
+			return "", err
 		}
 		if !haveDefaultKey {
 			err = createDefaultKeyPair(ctx, awsCfg, ec2Client)
 			if err != nil {
-				return launchResult, err
+				return "", err
 			}
 		}
 		keyPair := GetDefaultKeyName(awsCfg)
@@ -121,7 +150,7 @@ func LaunchEc2Spot(awsCfg aws.Config,
 	}
 	keysResult, err := LookupKeys(awsCfg)
 	if err != nil {
-		return launchResult, err
+		return "", err
 	}
 	launchResult.LocalKeyFile = ""
 	for _, keyItem := range keysResult.Keys {
@@ -142,11 +171,11 @@ func LaunchEc2Spot(awsCfg aws.Config,
 	amiName := launchArgs.AmiName
 	if amiName != "" {
 		if amiId != "" {
-			return launchResult, fmt.Errorf("Ami id and ami name are mutually exclusive; please specify one or the other")
+			return "", fmt.Errorf("Ami id and ami name are mutually exclusive; please specify one or the other")
 		}
 		amiId, err = getAmiIdFromName(awsCfg, ec2Client, amiName)
 		if err != nil {
-			return launchResult, err
+			return "", err
 		}
 	}
 	if amiId == "" {
@@ -157,10 +186,10 @@ func LaunchEc2Spot(awsCfg aws.Config,
 		launchResult.User = imageIdTab[idx].user
 		amiId, err = getLatestAmiId(ctx, awsCfg, launchArgs.Os)
 		if err != nil {
-			return launchResult, err
+			return "", err
 		}
 	} else if launchArgs.User == "" {
-		return launchResult, fmt.Errorf("User must be specified when ami id or ami name are specified")
+		return "", fmt.Errorf("User must be specified when ami id or ami name are specified")
 	} else {
 		launchResult.User = launchArgs.User
 	}
@@ -168,7 +197,7 @@ func LaunchEc2Spot(awsCfg aws.Config,
 	if sgId == "" {
 		sgId, err = getDefaultSecurityGroupId(awsCfg, ec2Client)
 		if err != nil {
-			return launchResult, err
+			return "", err
 		}
 	}
 	launchResult.SgId = sgId
@@ -191,64 +220,110 @@ func LaunchEc2Spot(awsCfg aws.Config,
 		Key:   &vpnTagKey,
 		Value: &vpnTagVal,
 	}
-	tagSpec := types.TagSpecification{
+	tagSpec := types.LaunchTemplateTagSpecificationRequest{
 		ResourceType: types.ResourceTypeInstance,
 		Tags:         []types.Tag{userTag, osTag, vpnTag},
 	}
 	rootVolSize := launchArgs.RootVolSizeInGiB
 	rootVolName, err := getRootVolName(ctx, ec2Client, amiId)
 	if err != nil {
-		return launchResult, err
+		return "", err
 	}
 	if rootVolSize == 0 {
 		rootVolSize = DefaultRootVolSizeInGiB
 	}
-	rootBlockMap := types.BlockDeviceMapping{
+	rootBlockMap := types.LaunchTemplateBlockDeviceMappingRequest{
 		DeviceName: &rootVolName,
-		Ebs: &types.EbsBlockDevice{
+		Ebs: &types.LaunchTemplateEbsBlockDeviceRequest{
 			VolumeSize: &rootVolSize,
 		},
 	}
 	if len(launchArgs.InstanceTypes) == 0 {
 		launchArgs.InstanceTypes = DefaultInstanceTypes
 	}
-	spotPriceResult, err := LookupEc2SpotPrices(awsCfg, launchArgs.InstanceTypes)
-	if err != nil {
-		return launchResult, err
+	createInput := &ec2.CreateLaunchTemplateInput{
+		LaunchTemplateData: &types.RequestLaunchTemplateData{
+			BlockDeviceMappings:               []types.LaunchTemplateBlockDeviceMappingRequest{rootBlockMap},
+			IamInstanceProfile:                iamOpts,
+			ImageId:                           aws.String(amiId),
+			InstanceInitiatedShutdownBehavior: types.ShutdownBehaviorTerminate,
+			InstanceMarketOptions:             marketOpts,
+			KeyName:                           keyName,
+			SecurityGroupIds:                  []string{sgId},
+			TagSpecifications:                 []types.LaunchTemplateTagSpecificationRequest{tagSpec},
+			UserData:                          initCmdEncoded,
+		},
+		LaunchTemplateName: aws.String(LaunchTemplateName),
 	}
-	iType := spotPriceResult.CheapestIType.InstanceType
-	launchResult.InstanceType = iType
-	cheapestAz := spotPriceResult.CheapestIType.CheapestRegion.CheapestAz.AzName
-	subnetId, err := getSubnetIdFromAzName(ec2Client, cheapestAz)
+	createOutput, err := ec2Client.CreateLaunchTemplate(ctx, createInput)
 	if err != nil {
-		return launchResult, err
+		return "", err
 	}
-	runInput := &ec2.RunInstancesInput{
-		MaxCount:                          &maxCount,
-		MinCount:                          &minCount,
-		IamInstanceProfile:                iamOpts,
-		ImageId:                           &amiId,
-		InstanceInitiatedShutdownBehavior: types.ShutdownBehaviorTerminate,
-		InstanceMarketOptions:             marketOpts,
-		InstanceType:                      iType,
-		KeyName:                           keyName,
-		SecurityGroupIds:                  []string{sgId},
-		UserData:                          initCmdEncoded,
-		TagSpecifications:                 []types.TagSpecification{tagSpec},
-		SubnetId:                          &subnetId,
-		BlockDeviceMappings:               []types.BlockDeviceMapping{rootBlockMap},
+
+	return *createOutput.LaunchTemplate.LaunchTemplateId, nil
+}
+
+func getLaunchTemplateConfigs(templateId string,
+	launchArgs *LaunchEc2SpotArgs) []types.FleetLaunchTemplateConfigRequest {
+
+	configList := make([]types.FleetLaunchTemplateConfigRequest, 0)
+	for _, iType := range launchArgs.InstanceTypes {
+		config := types.FleetLaunchTemplateConfigRequest{
+			LaunchTemplateSpecification: &types.FleetLaunchTemplateSpecificationRequest{
+				LaunchTemplateId: aws.String(templateId),
+				Version:          aws.String("$Latest"),
+			},
+			Overrides: []types.FleetLaunchTemplateOverridesRequest{
+				{InstanceType: iType},
+			},
+		}
+		configList = append(configList, config)
 	}
-	runOutput, err := ec2Client.RunInstances(ctx, runInput)
+
+	return configList
+}
+
+func runInstance(ctx context.Context, awsCfg aws.Config,
+	ec2Client *ec2.Client, templateId string, launchArgs *LaunchEc2SpotArgs,
+	launchResult *LaunchEc2SpotResult) error {
+
+	spotPrice := launchArgs.MaxSpotPrice
+	if spotPrice == "" {
+		spotPrice = DefaultMaxSpotPrice
+	}
+	input := &ec2.CreateFleetInput{
+		LaunchTemplateConfigs: getLaunchTemplateConfigs(templateId, launchArgs),
+		TargetCapacitySpecification: &types.TargetCapacitySpecificationRequest{
+			TotalTargetCapacity:       aws.Int32(1),
+			DefaultTargetCapacityType: types.DefaultTargetCapacityTypeSpot,
+			OnDemandTargetCapacity:    aws.Int32(0),
+			SpotTargetCapacity:        aws.Int32(1),
+		},
+		SpotOptions: &types.SpotOptionsRequest{
+			AllocationStrategy:     types.SpotAllocationStrategyPriceCapacityOptimized,
+			MaxTotalPrice:          aws.String(spotPrice),
+			MinTargetCapacity:      aws.Int32(1),
+			SingleAvailabilityZone: aws.Bool(true),
+			SingleInstanceType:     aws.Bool(false),
+		},
+		Type: types.FleetTypeInstant,
+	}
+	runOutput, err := ec2Client.CreateFleet(ctx, input)
 	if err != nil {
-		return launchResult, err
+		return fmt.Errorf("unable to create EC2 fleet: %w", err)
 	}
 
 	if len(runOutput.Instances) != 1 {
-		panic(fmt.Sprintf("Unexpected instance count: %v", len(runOutput.Instances)))
+		panic(fmt.Sprintf("Unexpected instance count: %v",
+			len(runOutput.Instances)))
 	}
-
-	instanceId := *runOutput.Instances[0].InstanceId
+	if len(runOutput.Instances[0].InstanceIds) != 1 {
+		panic(fmt.Sprintf("Unexpected instanceId count: %v",
+			len(runOutput.Instances[0].InstanceIds)))
+	}
+	instanceId := runOutput.Instances[0].InstanceIds[0]
 	launchResult.InstanceId = instanceId
+	launchResult.InstanceType = runOutput.Instances[0].InstanceType
 
 	for {
 		time.Sleep(1 * time.Second)
@@ -278,7 +353,7 @@ func LaunchEc2Spot(awsCfg aws.Config,
 		}
 	}
 
-	return launchResult, nil
+	return nil
 }
 
 func TerminateInstance(awsCfg aws.Config, instanceId string) error {

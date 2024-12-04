@@ -10,16 +10,17 @@ import (
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/mikeb26/spotsh/internal"
+
+	"github.com/mikeb26/spotsh"
 )
 
 func TestInstanceIdTab(t *testing.T) {
-	if len(imageIdTab) < int(internal.OsInvalid) {
+	if len(imageIdTab) < int(spotsh.OsInvalid) {
 		t.Fatalf("imageIdTab is missing OS entry")
 	}
 
-	for idx := 0; idx < int(internal.OsInvalid); idx++ {
-		os := internal.OperatingSystem(idx)
+	for idx := 0; idx < int(spotsh.OsInvalid); idx++ {
+		os := spotsh.OperatingSystem(idx)
 
 		if imageIdTab[idx].os != os {
 			t.Fatalf("imageIdTab entry mismatch expecting %v have %v", os,
@@ -36,8 +37,8 @@ func TestSsmParam(t *testing.T) {
 		t.Fatalf("failed to init aws config: %v", err)
 	}
 
-	for idx := int(internal.OsNone) + 1; idx < int(internal.OsInvalid); idx++ {
-		os := internal.OperatingSystem(idx)
+	for idx := int(spotsh.OsNone) + 1; idx < int(spotsh.OsInvalid); idx++ {
+		os := spotsh.OperatingSystem(idx)
 
 		amiId, err := getLatestAmiId(ctx, awsCfg, os)
 		if err != nil {

@@ -11,59 +11,60 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
-	"github.com/mikeb26/spotsh/internal"
+
+	"github.com/mikeb26/spotsh"
 )
 
 type imageIdEntry struct {
-	os       internal.OperatingSystem
+	os       spotsh.OperatingSystem
 	desc     string
 	ssmParam string
 	user     string
 }
 
 var imageIdTab = []imageIdEntry{
-	internal.OsNone: {},
-	internal.Ubuntu22_04: {
-		os:       internal.Ubuntu22_04,
+	spotsh.OsNone: {},
+	spotsh.Ubuntu22_04: {
+		os:       spotsh.Ubuntu22_04,
 		desc:     "Ubuntu 22.04 LTS",
 		ssmParam: "/aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp2/ami-id",
 		user:     "ubuntu",
 	},
-	internal.AmazonLinux2: {
-		os:       internal.AmazonLinux2,
+	spotsh.AmazonLinux2: {
+		os:       spotsh.AmazonLinux2,
 		desc:     "Amazon Linux 2",
 		ssmParam: "/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2",
 		user:     "ec2-user",
 	},
-	internal.AmazonLinux2023: {
-		os:       internal.AmazonLinux2023,
+	spotsh.AmazonLinux2023: {
+		os:       spotsh.AmazonLinux2023,
 		desc:     "Amazon Linux 2023 (standard)",
 		ssmParam: "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64",
 		user:     "ec2-user",
 	},
-	internal.AmazonLinux2023Min: {
-		os:       internal.AmazonLinux2023Min,
+	spotsh.AmazonLinux2023Min: {
+		os:       spotsh.AmazonLinux2023Min,
 		desc:     "Amazon Linux 2023 (minimal)",
 		ssmParam: "/aws/service/ami-amazon-linux-latest/al2023-ami-minimal-kernel-default-x86_64",
 		user:     "ec2-user",
 	},
-	internal.Debian12: {
-		os:       internal.Debian12,
+	spotsh.Debian12: {
+		os:       spotsh.Debian12,
 		desc:     "Debian GNU/Linux 12",
 		ssmParam: "/aws/service/debian/release/12/latest/amd64",
 		user:     "admin",
 	},
-	internal.Ubuntu24_04: {
-		os:       internal.Ubuntu24_04,
+	spotsh.Ubuntu24_04: {
+		os:       spotsh.Ubuntu24_04,
 		desc:     "Ubuntu 24.04 LTS",
 		ssmParam: "/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id",
 		user:     "ubuntu",
 	},
 }
 
-func GetImageDesc(os internal.OperatingSystem) string {
+func GetImageDesc(os spotsh.OperatingSystem) string {
 	idx := uint64(os)
-	if os == internal.OsNone || os >= internal.OsInvalid {
+	if os == spotsh.OsNone || os >= spotsh.OsInvalid {
 		idx = uint64(DefaultOperatingSystem)
 	}
 
@@ -71,13 +72,13 @@ func GetImageDesc(os internal.OperatingSystem) string {
 }
 
 func getLatestAmiId(ctx context.Context, awsCfg aws.Config,
-	os internal.OperatingSystem) (string, error) {
+	os spotsh.OperatingSystem) (string, error) {
 
-	if os == internal.OsNone {
+	if os == spotsh.OsNone {
 		return "", fmt.Errorf("Must specify os type to determine latest ami")
 	}
 	idx := uint64(os)
-	if idx >= uint64(internal.OsInvalid) {
+	if idx >= uint64(spotsh.OsInvalid) {
 		return "", fmt.Errorf("No such os index %v", idx)
 	}
 	idEntry := &imageIdTab[idx]

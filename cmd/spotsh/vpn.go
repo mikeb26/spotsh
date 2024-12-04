@@ -15,8 +15,8 @@ import (
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/mikeb26/spotsh/internal"
-	iaws "github.com/mikeb26/spotsh/internal/aws"
+	"github.com/mikeb26/spotsh"
+	iaws "github.com/mikeb26/spotsh/aws"
 )
 
 const (
@@ -46,8 +46,8 @@ func vpnMain(awsCfg aws.Config, args []string) error {
 		return err
 	}
 
-	if selectedResult.Os != internal.AmazonLinux2023 &&
-		selectedResult.Os != internal.AmazonLinux2023Min {
+	if selectedResult.Os != spotsh.AmazonLinux2023 &&
+		selectedResult.Os != spotsh.AmazonLinux2023Min {
 		return fmt.Errorf("spotsh vpn is only currently supported on Amazon Linux 2023 spot instances")
 	}
 

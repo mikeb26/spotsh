@@ -7,7 +7,7 @@ build: cmd/spotsh
 cmd/spotsh: FORCE
 	CGO_ENABLED=0 go build -o spotsh cmd/spotsh/*.go
 
-TESTPKGS=github.com/mikeb26/spotsh/internal github.com/mikeb26/spotsh/internal/aws
+TESTPKGS=github.com/mikeb26/spotsh github.com/mikeb26/spotsh/aws
 
 .PHONY: test
 test:

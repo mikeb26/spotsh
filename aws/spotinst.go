@@ -11,13 +11,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mikeb26/spotsh/internal"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
+
+	"github.com/mikeb26/spotsh"
 )
 
 const (
@@ -39,20 +40,20 @@ var DefaultInstanceTypes = []types.InstanceType{
 	types.InstanceTypeC7iFlexLarge,
 }
 
-const DefaultOperatingSystem = internal.AmazonLinux2023
+const DefaultOperatingSystem = spotsh.AmazonLinux2023
 
 type LaunchEc2SpotArgs struct {
-	Os               internal.OperatingSystem // optional; defaults to AmazonLinux2023
-	AmiId            string                   // optional; overrides Os; defaults to latest ami for specified Os
-	AmiName          string                   // optional; default is ignored in lieu of AmiId
-	KeyPair          string                   // optional; defaults to spotinst keypair
-	SecurityGroupId  string                   // optional; defaults to default VPC's default SG
-	AttachRoleName   string                   // optional; defaults to no attached role
-	InitCmd          string                   // optional; defaults to empty
-	InstanceTypes    []types.InstanceType     // optional; defaults to c5a.large
-	MaxSpotPrice     string                   // optional; defaults to "0.08" (USD$/hour)
-	User             string                   // optional; defaults to Os's default user
-	RootVolSizeInGiB int32                    // optional; defaults to 64GiB
+	Os               spotsh.OperatingSystem // optional; defaults to AmazonLinux2023
+	AmiId            string                 // optional; overrides Os; defaults to latest ami for specified Os
+	AmiName          string                 // optional; default is ignored in lieu of AmiId
+	KeyPair          string                 // optional; defaults to spotinst keypair
+	SecurityGroupId  string                 // optional; defaults to default VPC's default SG
+	AttachRoleName   string                 // optional; defaults to no attached role
+	InitCmd          string                 // optional; defaults to empty
+	InstanceTypes    []types.InstanceType   // optional; defaults to c5a.large
+	MaxSpotPrice     string                 // optional; defaults to "0.08" (USD$/hour)
+	User             string                 // optional; defaults to Os's default user
+	RootVolSizeInGiB int32                  // optional; defaults to 64GiB
 }
 
 type LaunchEc2SpotResult struct {
@@ -65,7 +66,7 @@ type LaunchEc2SpotResult struct {
 	CurrentPrice float64
 	AzName       string
 	DnsName      string
-	Os           internal.OperatingSystem
+	Os           spotsh.OperatingSystem
 	SgId         string
 }
 
@@ -179,7 +180,7 @@ func createLaunchTemplate(ctx context.Context, awsCfg aws.Config,
 		}
 	}
 	if amiId == "" {
-		if launchArgs.Os == internal.OsNone {
+		if launchArgs.Os == spotsh.OsNone {
 			launchArgs.Os = DefaultOperatingSystem
 		}
 		idx := int(launchArgs.Os)
@@ -548,7 +549,7 @@ func lookupEc2SpotOneRegion(awsCfg aws.Config) ([]LaunchEc2SpotResult, error) {
 				AzName:       azName,
 				CurrentPrice: 0.00,
 				DnsName:      *inst.PublicDnsName,
-				Os:           internal.OsFromString(os),
+				Os:           spotsh.OsFromString(os),
 				SgId:         *inst.SecurityGroups[0].GroupId,
 			}
 

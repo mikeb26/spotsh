@@ -24,8 +24,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 
-	"github.com/mikeb26/spotsh/internal"
-	iaws "github.com/mikeb26/spotsh/internal/aws"
+	"github.com/mikeb26/spotsh"
+	iaws "github.com/mikeb26/spotsh/aws"
 )
 
 type Prefs struct {
@@ -230,7 +230,7 @@ func launchMain(awsCfg aws.Config, args []string) error {
 		}
 	} else {
 		if os != "" {
-			launchArgs.Os = internal.OsFromString(os)
+			launchArgs.Os = spotsh.OsFromString(os)
 		}
 		if launchArgs.User != "" {
 			return fmt.Errorf("--user is automatically determined by default or when --os is specified")
@@ -761,7 +761,7 @@ func newLaunchArgsFromPrefs(awsCfg aws.Config) (*iaws.LaunchEc2SpotArgs, error) 
 	}
 
 	launchArgs := &iaws.LaunchEc2SpotArgs{
-		Os:               internal.OsFromString(prefs.Os),
+		Os:               spotsh.OsFromString(prefs.Os),
 		KeyPair:          prefs.keyPair,
 		SecurityGroupId:  prefs.securityGroup,
 		InstanceTypes:    stringSlice2iTypeSlice(prefs.InstanceTypes),
@@ -810,7 +810,7 @@ func prefsMain(awsCfg aws.Config, args []string) error {
 
 	os := iaws.DefaultOperatingSystem
 	if prefs.Os != "" {
-		os = internal.OsFromString(prefs.Os)
+		os = spotsh.OsFromString(prefs.Os)
 	}
 
 	fmt.Printf("Setting spotsh preferences...\n")
@@ -831,8 +831,8 @@ func prefsMain(awsCfg aws.Config, args []string) error {
 		newOsStr = strings.TrimSpace(newOsStr)
 		newOsStr = strings.Split(newOsStr, " ")[0]
 		newOsStr = strings.Trim(newOsStr, "\"")
-		os = internal.OsFromString(newOsStr)
-		if os == internal.OsInvalid {
+		os = spotsh.OsFromString(newOsStr)
+		if os == spotsh.OsInvalid {
 			return fmt.Errorf("No such os \"%v\" supported", newOsStr)
 		}
 		prefs.Os = newOsStr

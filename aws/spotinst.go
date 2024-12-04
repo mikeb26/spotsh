@@ -70,7 +70,7 @@ type LaunchEc2SpotResult struct {
 	SgId         string
 }
 
-func LaunchEc2Spot(awsCfg aws.Config,
+func LaunchEc2Spot(ctx context.Context, awsCfg aws.Config,
 	launchArgs *LaunchEc2SpotArgs) (LaunchEc2SpotResult, error) {
 
 	if launchArgs == nil {
@@ -79,7 +79,6 @@ func LaunchEc2Spot(awsCfg aws.Config,
 
 	var launchResult LaunchEc2SpotResult
 	ec2Client := ec2.NewFromConfig(awsCfg)
-	ctx := context.Background()
 	templateId, err := createLaunchTemplate(ctx, awsCfg, ec2Client, launchArgs,
 		&launchResult)
 	if err != nil {

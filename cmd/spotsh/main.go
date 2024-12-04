@@ -237,7 +237,8 @@ func launchMain(awsCfg aws.Config, args []string) error {
 		}
 	}
 
-	launchResult, err := iaws.LaunchEc2Spot(awsCfg, launchArgs)
+	ctx := context.Background()
+	launchResult, err := iaws.LaunchEc2Spot(ctx, awsCfg, launchArgs)
 	if err != nil {
 		return err
 	}
@@ -407,7 +408,8 @@ func selectOrLaunch(awsCfg aws.Config, canLaunch bool,
 			fmt.Fprintf(os.Stderr, "Launching new spot instance in %v...\n",
 				awsCfg.Region)
 
-			newLaunchResult, err = iaws.LaunchEc2Spot(awsCfg, launchArgs)
+			ctx := context.Background()
+			newLaunchResult, err = iaws.LaunchEc2Spot(ctx, awsCfg, launchArgs)
 			launchResults = append(launchResults, newLaunchResult)
 		} else {
 			err = fmt.Errorf("No spotsh instances running")

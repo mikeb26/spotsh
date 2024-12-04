@@ -58,7 +58,7 @@ func TestLaunch(t *testing.T) {
 		t.Fatalf("failed to init aws config: %v", err)
 	}
 
-	launchResult, err := LaunchEc2Spot(awsCfg, nil)
+	launchResult, err := LaunchEc2Spot(ctx, awsCfg, nil)
 	if err != nil {
 		t.Fatalf("failed to launch spot instance: %v", err)
 	}

@@ -231,6 +231,14 @@ func launchMain(awsCfg aws.Config, args []string) error {
 	} else {
 		if os != "" {
 			launchArgs.Os = spotsh.OsFromString(os)
+			if launchArgs.Os == spotsh.OsInvalid {
+				var sb strings.Builder
+				sb.WriteString(fmt.Sprintf("unrecognized OS '%v'. Known OS are below:\n", os))
+				for _, tmpOs := range launchArgs.Os.Values() {
+					sb.WriteString(fmt.Sprintf("\t%v\n", tmpOs.String()))
+				}
+				return fmt.Errorf(sb.String())
+			}
 		}
 		if launchArgs.User != "" {
 			return fmt.Errorf("--user is automatically determined by default or when --os is specified")

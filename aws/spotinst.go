@@ -314,13 +314,22 @@ func runInstance(ctx context.Context, awsCfg aws.Config,
 	}
 
 	if len(runOutput.Instances) != 1 {
-		panic(fmt.Sprintf("Unexpected instance count: %v",
-			len(runOutput.Instances)))
+		deleteInput := &ec2.DeleteFleetsInput{
+			FleetIds:           []string{*runOutput.FleetId},
+			TerminateInstances: aws.Bool(true),
+		}
+		_, _ = ec2Client.DeleteFleets(ctx, deleteInput)
+		return fmt.Errorf("Unable to create instances at this price")
 	}
 	if len(runOutput.Instances[0].InstanceIds) != 1 {
-		panic(fmt.Sprintf("Unexpected instanceId count: %v",
-			len(runOutput.Instances[0].InstanceIds)))
+		deleteInput := &ec2.DeleteFleetsInput{
+			FleetIds:           []string{*runOutput.FleetId},
+			TerminateInstances: aws.Bool(true),
+		}
+		_, _ = ec2Client.DeleteFleets(ctx, deleteInput)
+		return fmt.Errorf("Unable to create instances at this price")
 	}
+
 	instanceId := runOutput.Instances[0].InstanceIds[0]
 	launchResult.InstanceId = instanceId
 	launchResult.InstanceType = runOutput.Instances[0].InstanceType

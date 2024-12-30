@@ -22,12 +22,12 @@ import (
 )
 
 const (
-	UserTagKey              = "spotsh.user"
-	OsTagKey                = "spotsh.os"
-	VpnTagKey               = "spotsh.vpn"
+	DefaultTagPrefix        = "spotsh"
+	UserTagSuffix           = "user"
+	OsTagSuffix             = "os"
+	VpnTagSuffix            = "vpn"
 	DefaultRootVolSizeInGiB = int32(64)
 	DefaultMaxSpotPrice     = "0.08"
-	LaunchTemplateName      = "spotsh"
 )
 
 var DefaultInstanceTypes = []types.InstanceType{
@@ -54,6 +54,7 @@ type LaunchEc2SpotArgs struct {
 	MaxSpotPrice     string                 // optional; defaults to "0.08" (USD$/hour)
 	User             string                 // optional; defaults to Os's default user
 	RootVolSizeInGiB int32                  // optional; defaults to 64GiB
+	TagPrefix        string                 // optional; defaults to 'spotsh'
 }
 
 type LaunchEc2SpotResult struct {
@@ -96,8 +97,12 @@ func createLaunchTemplate(ctx context.Context, awsCfg aws.Config,
 	ec2Client *ec2.Client, launchArgs *LaunchEc2SpotArgs,
 	launchResult *LaunchEc2SpotResult) (string, error) {
 
+	if launchArgs.TagPrefix == "" {
+		launchArgs.TagPrefix = DefaultTagPrefix
+	}
+	launchTemplateName := launchArgs.TagPrefix + "-lt"
 	descInput := &ec2.DescribeLaunchTemplatesInput{
-		LaunchTemplateNames: []string{LaunchTemplateName},
+		LaunchTemplateNames: []string{launchTemplateName},
 	}
 	descOuput, err := ec2Client.DescribeLaunchTemplates(ctx, descInput)
 	if err == nil && len(descOuput.LaunchTemplates) > 0 {
@@ -201,20 +206,20 @@ func createLaunchTemplate(ctx context.Context, awsCfg aws.Config,
 		}
 	}
 	launchResult.SgId = sgId
-	userTagKey := UserTagKey
+	userTagKey := launchArgs.TagPrefix + "." + UserTagSuffix
 	userTagVal := launchResult.User
 	userTag := types.Tag{
 		Key:   &userTagKey,
 		Value: &userTagVal,
 	}
-	osTagKey := OsTagKey
+	osTagKey := launchArgs.TagPrefix + "." + OsTagSuffix
 	osTagVal := launchArgs.Os.String()
 	launchResult.Os = launchArgs.Os
 	osTag := types.Tag{
 		Key:   &osTagKey,
 		Value: &osTagVal,
 	}
-	vpnTagKey := VpnTagKey
+	vpnTagKey := launchArgs.TagPrefix + "." + VpnTagSuffix
 	vpnTagVal := "false"
 	vpnTag := types.Tag{
 		Key:   &vpnTagKey,
@@ -253,7 +258,7 @@ func createLaunchTemplate(ctx context.Context, awsCfg aws.Config,
 			TagSpecifications:                 []types.LaunchTemplateTagSpecificationRequest{tagSpec},
 			UserData:                          initCmdEncoded,
 		},
-		LaunchTemplateName: aws.String(LaunchTemplateName),
+		LaunchTemplateName: aws.String(launchTemplateName),
 	}
 	createOutput, err := ec2Client.CreateLaunchTemplate(ctx, createInput)
 	if err != nil {
@@ -438,8 +443,11 @@ func GetTagValue(awsCfg aws.Config, instanceId string,
 }
 
 func LookupEc2Spot(ctx context.Context,
-	awsCfgIn aws.Config) ([]LaunchEc2SpotResult, error) {
+	awsCfgIn aws.Config, tagPrefix string) ([]LaunchEc2SpotResult, error) {
 
+	if tagPrefix == "" {
+		tagPrefix = DefaultTagPrefix
+	}
 	var err error
 	var regionList []string
 	resultsAllRegions := make([]LaunchEc2SpotResult, 0)
@@ -464,7 +472,7 @@ func LookupEc2Spot(ctx context.Context,
 			if err != nil {
 				return err
 			}
-			resultsOneRegion, err := lookupEc2SpotOneRegion(awsCfgTmp)
+			resultsOneRegion, err := lookupEc2SpotOneRegion(awsCfgTmp, tagPrefix)
 			if err != nil {
 				return err
 			}
@@ -484,7 +492,8 @@ func LookupEc2Spot(ctx context.Context,
 	return resultsAllRegions, nil
 }
 
-func lookupEc2SpotOneRegion(awsCfg aws.Config) ([]LaunchEc2SpotResult, error) {
+func lookupEc2SpotOneRegion(awsCfg aws.Config,
+	tagPrefix string) ([]LaunchEc2SpotResult, error) {
 
 	launchResults := make([]LaunchEc2SpotResult, 0)
 
@@ -511,6 +520,8 @@ func lookupEc2SpotOneRegion(awsCfg aws.Config) ([]LaunchEc2SpotResult, error) {
 	var foundSpotShTag bool
 	var user string
 	var os string
+	userTagKey := tagPrefix + "." + UserTagSuffix
+	osTagKey := tagPrefix + "." + OsTagSuffix
 	for _, resv := range descOutput.Reservations {
 		for _, inst := range resv.Instances {
 			if inst.State.Name != types.InstanceStateNameRunning {
@@ -518,10 +529,10 @@ func lookupEc2SpotOneRegion(awsCfg aws.Config) ([]LaunchEc2SpotResult, error) {
 			}
 			foundSpotShTag = false
 			for _, tag := range inst.Tags {
-				if *tag.Key == UserTagKey {
+				if *tag.Key == userTagKey {
 					foundSpotShTag = true
 					user = *tag.Value
-				} else if *tag.Key == OsTagKey {
+				} else if *tag.Key == osTagKey {
 					os = *tag.Value
 				}
 			}

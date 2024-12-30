@@ -99,7 +99,8 @@ func infoMain(awsCfg aws.Config, args []string) error {
 	}
 
 	if instances {
-		launchResults, err := iaws.LookupEc2Spot(context.Background(), awsCfg)
+		launchResults, err := iaws.LookupEc2Spot(context.Background(), awsCfg,
+			iaws.DefaultTagPrefix)
 		if err != nil {
 			return fmt.Errorf("Failed to lookup instance: %w", err)
 		}
@@ -301,7 +302,7 @@ func terminateMain(awsCfg aws.Config, args []string) error {
 	}
 
 	needVpnTeardown, err := iaws.GetTagValue(awsCfg, selectedInstance.InstanceId,
-		iaws.VpnTagKey)
+		iaws.DefaultTagPrefix+"."+iaws.VpnTagSuffix)
 	if err != nil {
 		return fmt.Errorf("Failed to get vpn tag value: %w", err)
 	}
@@ -404,7 +405,8 @@ func selectOrLaunchWithArgs(awsCfg aws.Config, cmdName string, canLaunch bool,
 func selectOrLaunch(awsCfg aws.Config, canLaunch bool,
 	instanceId string) (*iaws.LaunchEc2SpotResult, error) {
 
-	launchResults, err := iaws.LookupEc2Spot(context.Background(), awsCfg)
+	launchResults, err := iaws.LookupEc2Spot(context.Background(), awsCfg,
+		iaws.DefaultTagPrefix)
 	if err == nil && len(launchResults) == 0 {
 		if canLaunch {
 			launchArgs, err := newLaunchArgsFromPrefs(awsCfg)

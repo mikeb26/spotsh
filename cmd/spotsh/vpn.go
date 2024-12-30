@@ -251,7 +251,9 @@ func startVpnClient(awsCfg aws.Config,
 
 	fmt.Fprintf(os.Stderr, "Starting vpn client...\n")
 
-	err = iaws.UpdateTag(awsCfg, selectedResult.InstanceId, iaws.VpnTagKey, "true")
+	vpnTagKey := iaws.DefaultTagPrefix + "." + iaws.VpnTagSuffix
+	err = iaws.UpdateTag(awsCfg, selectedResult.InstanceId,
+		vpnTagKey, "true")
 	if err != nil {
 		return fmt.Errorf("Failed to update instance's vpn tag: %w", err)
 	}
@@ -291,7 +293,8 @@ func stopVpnClient(awsCfg aws.Config,
 		return fmt.Errorf("Failed to stop vpn client: %w", err)
 	}
 
-	err = iaws.UpdateTag(awsCfg, selectedResult.InstanceId, iaws.VpnTagKey, "false")
+	vpnTagKey := iaws.DefaultTagPrefix + "." + iaws.VpnTagSuffix
+	err = iaws.UpdateTag(awsCfg, selectedResult.InstanceId, vpnTagKey, "false")
 	if err != nil {
 		return fmt.Errorf("Failed to update instance's vpn tag: %w", err)
 	}

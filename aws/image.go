@@ -60,6 +60,18 @@ var imageIdTab = []imageIdEntry{
 		ssmParam: "/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id",
 		user:     "ubuntu",
 	},
+	spotsh.Debian13: {
+		os:       spotsh.Debian13,
+		desc:     "Debian GNU/Linux 13",
+		ssmParam: "/aws/service/debian/release/13/latest/amd64",
+		user:     "admin",
+	},
+	spotsh.Ubuntu26_04: {
+		os:       spotsh.Ubuntu26_04,
+		desc:     "Ubuntu 26.04 LTS",
+		ssmParam: "/aws/service/canonical/ubuntu/server/26.04/stable/current/amd64/hvm/ebs-gp3/ami-id",
+		user:     "ubuntu",
+	},
 }
 
 func GetImageDesc(os spotsh.OperatingSystem) string {

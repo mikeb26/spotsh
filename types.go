@@ -14,6 +14,8 @@ const (
 	AmazonLinux2023Min
 	Debian12
 	Ubuntu24_04
+	Ubuntu26_04
+	Debian13
 
 	OsInvalid // must be last
 )
@@ -26,6 +28,8 @@ var osTab = []string{
 	AmazonLinux2023Min: "amzn2023min",
 	Debian12:           "debian12",
 	Ubuntu24_04:        "ubuntu24.04",
+	Ubuntu26_04:        "ubuntu26.04",
+	Debian13:           "debian13",
 
 	OsInvalid: "invalid",
 }
@@ -58,6 +62,8 @@ func (os OperatingSystem) Values() []OperatingSystem {
 		AmazonLinux2023Min,
 		Debian12,
 		Ubuntu24_04,
+		Ubuntu26_04,
+		Debian13,
 	}
 }
 

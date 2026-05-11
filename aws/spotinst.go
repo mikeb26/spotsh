@@ -38,6 +38,9 @@ var DefaultInstanceTypes = []types.InstanceType{
 	types.InstanceTypeC7iLarge,
 	types.InstanceTypeC7aLarge,
 	types.InstanceTypeC7iFlexLarge,
+	types.InstanceTypeC8iLarge,
+	types.InstanceTypeC8aLarge,
+	types.InstanceTypeC8iFlexLarge,
 }
 
 const DefaultOperatingSystem = spotsh.AmazonLinux2023
@@ -50,7 +53,7 @@ type LaunchEc2SpotArgs struct {
 	SecurityGroupId  string                 // optional; defaults to default VPC's default SG
 	AttachRoleName   string                 // optional; defaults to no attached role
 	InitCmd          string                 // optional; defaults to empty
-	InstanceTypes    []types.InstanceType   // optional; defaults to c5a.large
+	InstanceTypes    []types.InstanceType   // optional; defaults to DefaultInstanceTypes
 	MaxSpotPrice     string                 // optional; defaults to "0.08" (USD$/hour)
 	User             string                 // optional; defaults to Os's default user
 	RootVolSizeInGiB int32                  // optional; defaults to 64GiB

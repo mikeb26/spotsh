@@ -1039,7 +1039,7 @@ func main() {
 	}
 	err = f.Parse(args)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "%v\n", err)
+		helpMain(awsCfg, args)
 		os.Exit(1)
 	}
 	args = f.Args()

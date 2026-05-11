@@ -207,6 +207,10 @@ func getRegions() ([]string, error) {
 
 	regList := make([]string, 0)
 	for _, regOut := range descRegOut.Regions {
+		// temporarily skip Middle East (Bahrain) due to availability issues
+		if *regOut.RegionName == "me-south-1" {
+			continue
+		}
 		regList = append(regList, *regOut.RegionName)
 	}
 

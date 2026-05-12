@@ -1008,13 +1008,18 @@ func priceMain(awsCfg aws.Config, args []string) error {
 			}
 
 			lookupAz := lookupReg.CheapestAz
+			placementScore := "-"
+			if lookupAz.PlacementScore != 0 {
+				placementScore = fmt.Sprintf("%v/10", lookupAz.PlacementScore)
+			}
 			if lookupReg == lookupInst.CheapestRegion &&
 				lookupInst == lookupResult.CheapestIType {
 				fmt.Printf(" ** ")
 			}
 
-			fmt.Printf("%v - %v - %v - $%v/hr\n", lookupInst.InstanceType,
-				lookupReg.Region, lookupAz.AzName, lookupAz.CurPrice)
+			fmt.Printf("%v - %v - %v - $%v/hr - %v\n", lookupInst.InstanceType,
+				lookupReg.Region, lookupAz.AzName, lookupAz.CurPrice,
+				placementScore)
 		}
 	}
 

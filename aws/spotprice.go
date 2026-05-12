@@ -19,8 +19,9 @@ import (
 )
 
 type LookupEc2SpotPriceAz struct {
-	AzName   string
-	CurPrice float64
+	AzName         string
+	CurPrice       float64
+	PlacementScore int32
 }
 
 type LookupEc2SpotPriceRegion struct {
@@ -124,18 +125,34 @@ func lookupEc2SpotPricesOneRegion(curReg string, iTypes []types.InstanceType,
 	if err != nil {
 		return err
 	}
+	iTypesWithSpotPrices := make([]types.InstanceType, 0)
+	iTypesWithSpotPricesSeen := make(map[types.InstanceType]bool)
+	for _, entry := range descOutput.SpotPriceHistory {
+		if iTypesWithSpotPricesSeen[entry.InstanceType] {
+			continue
+		}
+		iTypesWithSpotPricesSeen[entry.InstanceType] = true
+		iTypesWithSpotPrices = append(iTypesWithSpotPrices, entry.InstanceType)
+	}
+	placementScores, err := lookupEc2SpotPlacementScores(ctx, ec2Client, curReg,
+		iTypesWithSpotPrices)
+	if err != nil {
+		return err
+	}
 
 	for _, entry := range descOutput.SpotPriceHistory {
 		iType := entry.InstanceType
 		azName := *entry.AvailabilityZone
+		azId := aws.ToString(entry.AvailabilityZoneId)
 		curPrice, err := strconv.ParseFloat(*entry.SpotPrice, 64)
 		if err != nil {
 			return fmt.Errorf("Failed to parse float %v for %v:%v:%v: %w",
 				entry.SpotPrice, iType, curReg, azName, err)
 		}
 		lookupAz := &LookupEc2SpotPriceAz{
-			AzName:   azName,
-			CurPrice: curPrice,
+			AzName:         azName,
+			CurPrice:       curPrice,
+			PlacementScore: placementScores[azId],
 		}
 
 		result.mutex.Lock()
@@ -148,6 +165,42 @@ func lookupEc2SpotPricesOneRegion(curReg string, iTypes []types.InstanceType,
 	}
 
 	return nil
+}
+
+func lookupEc2SpotPlacementScores(ctx context.Context, ec2Client *ec2.Client,
+	curReg string, iTypes []types.InstanceType) (map[string]int32, error) {
+
+	placementScores := make(map[string]int32)
+	instanceTypes := make([]string, 0, len(iTypes))
+	for _, iType := range iTypes {
+		instanceTypes = append(instanceTypes, string(iType))
+	}
+	if len(instanceTypes) == 0 {
+		return placementScores, nil
+	}
+
+	getInput := &ec2.GetSpotPlacementScoresInput{
+		InstanceTypes:          instanceTypes,
+		RegionNames:            []string{curReg},
+		SingleAvailabilityZone: aws.Bool(true),
+		TargetCapacity:         aws.Int32(1),
+		TargetCapacityUnitType: types.TargetCapacityUnitTypeUnits,
+	}
+	getOutput, err := ec2Client.GetSpotPlacementScores(ctx, getInput)
+	if err != nil {
+		return nil, fmt.Errorf("Failed to get spot placement scores for %v in %v: %w",
+			iTypes, curReg, err)
+	}
+
+	for _, score := range getOutput.SpotPlacementScores {
+		azId := aws.ToString(score.AvailabilityZoneId)
+		if azId == "" || score.Score == nil {
+			continue
+		}
+		placementScores[azId] = *score.Score
+	}
+
+	return placementScores, nil
 }
 
 func setCheapest(result *LookupEc2SpotPriceResult, iType types.InstanceType,

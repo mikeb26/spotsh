@@ -35,7 +35,7 @@ Available Commands:
   info [<INFOFLAGS>]             List spot shell instances, security
                                  groups, and/or available key pairs
   launch [<LAUNCHFLAGS>]         Launch a new spot shell instance
-  price [<PRICEFLAGS>]           Display spot prices
+  price [<PRICEFLAGS>]           Display spot prices and placement scores
   ssh [<SSHFLAGS>]               ssh to an existing spot shell instance
   scp [<SSHFLAGS>] -- <SCP_ARGS> scp to/from an existing spot shell
                                  instance

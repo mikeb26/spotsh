@@ -137,7 +137,10 @@ func lookupEc2SpotPricesOneRegion(curReg string, iTypes []types.InstanceType,
 	placementScores, err := lookupEc2SpotPlacementScores(ctx, ec2Client, curReg,
 		iTypesWithSpotPrices)
 	if err != nil {
-		return err
+		// Spot placement scores are best-effort. Some regions do not support
+		// GetSpotPlacementScores, and callers should still get spot price output
+		// with an unknown placement score rather than a hard failure.
+		placementScores = make(map[string]int32)
 	}
 
 	for _, entry := range descOutput.SpotPriceHistory {

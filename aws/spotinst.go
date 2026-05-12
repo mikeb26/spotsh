@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -273,23 +274,17 @@ func createLaunchTemplate(ctx context.Context, awsCfg aws.Config,
 }
 
 func getLaunchTemplateConfigs(templateId string,
-	launchArgs *LaunchEc2SpotArgs) []types.FleetLaunchTemplateConfigRequest {
+	overrides []types.FleetLaunchTemplateOverridesRequest) []types.FleetLaunchTemplateConfigRequest {
 
-	configList := make([]types.FleetLaunchTemplateConfigRequest, 0)
-	for _, iType := range launchArgs.InstanceTypes {
-		config := types.FleetLaunchTemplateConfigRequest{
-			LaunchTemplateSpecification: &types.FleetLaunchTemplateSpecificationRequest{
-				LaunchTemplateId: aws.String(templateId),
-				Version:          aws.String("$Latest"),
-			},
-			Overrides: []types.FleetLaunchTemplateOverridesRequest{
-				{InstanceType: iType},
-			},
-		}
-		configList = append(configList, config)
+	config := types.FleetLaunchTemplateConfigRequest{
+		LaunchTemplateSpecification: &types.FleetLaunchTemplateSpecificationRequest{
+			LaunchTemplateId: aws.String(templateId),
+			Version:          aws.String("$Latest"),
+		},
+		Overrides: overrides,
 	}
 
-	return configList
+	return []types.FleetLaunchTemplateConfigRequest{config}
 }
 
 func runInstance(ctx context.Context, awsCfg aws.Config,
@@ -300,8 +295,13 @@ func runInstance(ctx context.Context, awsCfg aws.Config,
 	if spotPrice == "" {
 		spotPrice = DefaultMaxSpotPrice
 	}
+	overrides, err := getFleetLaunchTemplateOverrides(ctx, awsCfg, ec2Client,
+		launchArgs, launchResult.SgId)
+	if err != nil {
+		return err
+	}
 	input := &ec2.CreateFleetInput{
-		LaunchTemplateConfigs: getLaunchTemplateConfigs(templateId, launchArgs),
+		LaunchTemplateConfigs: getLaunchTemplateConfigs(templateId, overrides),
 		TargetCapacitySpecification: &types.TargetCapacitySpecificationRequest{
 			TotalTargetCapacity:       aws.Int32(1),
 			DefaultTargetCapacityType: types.DefaultTargetCapacityTypeSpot,
@@ -369,6 +369,107 @@ func runInstance(ctx context.Context, awsCfg aws.Config,
 	}
 
 	return nil
+}
+
+type fleetLaunchCandidate struct {
+	override          types.FleetLaunchTemplateOverridesRequest
+	price             float64
+	azName            string
+	instanceTypeOrder int
+}
+
+func getFleetLaunchTemplateOverrides(ctx context.Context, awsCfg aws.Config,
+	ec2Client *ec2.Client, launchArgs *LaunchEc2SpotArgs,
+	sgId string) ([]types.FleetLaunchTemplateOverridesRequest, error) {
+
+	spotPriceResult, err := LookupEc2SpotPrices(awsCfg, launchArgs.InstanceTypes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to look up spot prices for launch candidates: %w",
+			err)
+	}
+
+	subnetIdsByAz, err := getSubnetIdsByAzForSecurityGroup(ctx, ec2Client, sgId)
+	if err != nil {
+		return nil, fmt.Errorf("failed to look up subnets for security group %v: %w",
+			sgId, err)
+	}
+
+	overrides := buildFleetLaunchTemplateOverrides(awsCfg.Region,
+		launchArgs.InstanceTypes, spotPriceResult, subnetIdsByAz)
+	if len(overrides) == 0 {
+		return nil, fmt.Errorf("could not find any launchable spot capacity pools in %v for instance types %v in security group %v's VPC; no AZ had current spot price data, current instance type offering, and an available subnet",
+			awsCfg.Region, launchArgs.InstanceTypes, sgId)
+	}
+
+	return overrides, nil
+}
+
+func buildFleetLaunchTemplateOverrides(region string,
+	iTypes []types.InstanceType, spotPriceResult *LookupEc2SpotPriceResult,
+	subnetIdsByAz map[string]string) []types.FleetLaunchTemplateOverridesRequest {
+
+	instanceTypeOrder := make(map[types.InstanceType]int)
+	for idx, iType := range iTypes {
+		if _, ok := instanceTypeOrder[iType]; !ok {
+			instanceTypeOrder[iType] = idx
+		}
+	}
+
+	candidates := make([]fleetLaunchCandidate, 0)
+	if spotPriceResult == nil {
+		return nil
+	}
+	for _, iType := range iTypes {
+		lookupIType := spotPriceResult.InstanceTypes[iType]
+		if lookupIType == nil {
+			continue
+		}
+		lookupReg := lookupIType.Regions[region]
+		if lookupReg == nil {
+			continue
+		}
+
+		for azName, lookupAz := range lookupReg.Azs {
+			subnetId := subnetIdsByAz[azName]
+			if lookupAz == nil || subnetId == "" {
+				continue
+			}
+
+			candidates = append(candidates, fleetLaunchCandidate{
+				override: types.FleetLaunchTemplateOverridesRequest{
+					InstanceType: iType,
+					SubnetId:     aws.String(subnetId),
+				},
+				price:             lookupAz.CurPrice,
+				azName:            azName,
+				instanceTypeOrder: instanceTypeOrder[iType],
+			})
+		}
+	}
+
+	sort.Slice(candidates, func(i int, j int) bool {
+		left := candidates[i]
+		right := candidates[j]
+		if left.price != right.price {
+			return left.price < right.price
+		}
+		if left.instanceTypeOrder != right.instanceTypeOrder {
+			return left.instanceTypeOrder < right.instanceTypeOrder
+		}
+		if left.override.InstanceType != right.override.InstanceType {
+			return left.override.InstanceType < right.override.InstanceType
+		}
+
+		return left.azName < right.azName
+	})
+
+	overrides := make([]types.FleetLaunchTemplateOverridesRequest, 0,
+		len(candidates))
+	for _, candidate := range candidates {
+		overrides = append(overrides, candidate.override)
+	}
+
+	return overrides
 }
 
 func deleteFleet(ctx context.Context, ec2Client *ec2.Client, fleetId *string) {

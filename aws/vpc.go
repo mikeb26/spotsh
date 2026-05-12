@@ -257,6 +257,108 @@ func LookupVpcSecurityGroups(awsCfg aws.Config) (LookupVpcSgsResult, error) {
 	return lookupVpcSgsResult, nil
 }
 
+type subnetCandidate struct {
+	subnetId                string
+	defaultForAz            bool
+	mapPublicIpOnLaunch     bool
+	availableIpAddressCount int32
+}
+
+func getVpcIdFromSecurityGroup(ctx context.Context, ec2Client *ec2.Client,
+	sgId string) (string, error) {
+
+	descIn := &ec2.DescribeSecurityGroupsInput{
+		GroupIds: []string{sgId},
+	}
+	descOut, err := ec2Client.DescribeSecurityGroups(ctx, descIn)
+	if err != nil {
+		return "", err
+	}
+	if len(descOut.SecurityGroups) != 1 {
+		return "", fmt.Errorf("expected 1 security group for %v, got %v",
+			sgId, len(descOut.SecurityGroups))
+	}
+
+	return aws.ToString(descOut.SecurityGroups[0].VpcId), nil
+}
+
+func getSubnetIdsByAzForSecurityGroup(ctx context.Context,
+	ec2Client *ec2.Client, sgId string) (map[string]string, error) {
+
+	vpcId, err := getVpcIdFromSecurityGroup(ctx, ec2Client, sgId)
+	if err != nil {
+		return nil, err
+	}
+	if vpcId == "" {
+		return nil, fmt.Errorf("security group %v is not associated with a VPC",
+			sgId)
+	}
+
+	dryRun := false
+	descIn := &ec2.DescribeSubnetsInput{
+		DryRun: &dryRun,
+		Filters: []types.Filter{
+			{
+				Name:   aws.String("vpc-id"),
+				Values: []string{vpcId},
+			},
+			{
+				Name:   aws.String("state"),
+				Values: []string{"available"},
+			},
+		},
+	}
+	descOut, err := ec2Client.DescribeSubnets(ctx, descIn)
+	if err != nil {
+		return nil, err
+	}
+
+	subnetsByAz := make(map[string]subnetCandidate)
+	for _, subnet := range descOut.Subnets {
+		azName := aws.ToString(subnet.AvailabilityZone)
+		subnetId := aws.ToString(subnet.SubnetId)
+		if azName == "" || subnetId == "" {
+			continue
+		}
+
+		candidate := subnetCandidate{
+			subnetId:                subnetId,
+			defaultForAz:            aws.ToBool(subnet.DefaultForAz),
+			mapPublicIpOnLaunch:     aws.ToBool(subnet.MapPublicIpOnLaunch),
+			availableIpAddressCount: aws.ToInt32(subnet.AvailableIpAddressCount),
+		}
+		existing, ok := subnetsByAz[azName]
+		if !ok || isBetterSubnetCandidate(candidate, existing) {
+			subnetsByAz[azName] = candidate
+		}
+	}
+
+	if len(subnetsByAz) == 0 {
+		return nil, fmt.Errorf("could not find available subnets in VPC %v for security group %v",
+			vpcId, sgId)
+	}
+
+	subnetIdsByAz := make(map[string]string, len(subnetsByAz))
+	for azName, subnet := range subnetsByAz {
+		subnetIdsByAz[azName] = subnet.subnetId
+	}
+
+	return subnetIdsByAz, nil
+}
+
+func isBetterSubnetCandidate(candidate subnetCandidate,
+	existing subnetCandidate) bool {
+
+	if candidate.defaultForAz != existing.defaultForAz {
+		return candidate.defaultForAz
+	}
+	if candidate.mapPublicIpOnLaunch != existing.mapPublicIpOnLaunch {
+		return candidate.mapPublicIpOnLaunch
+	}
+
+	return candidate.availableIpAddressCount > existing.availableIpAddressCount
+}
+
 func getAzNameFromSubnetId(ec2Client *ec2.Client, azMap map[string]string,
 	subnetId string) (string, error) {
 

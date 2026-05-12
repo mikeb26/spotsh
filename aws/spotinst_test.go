@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 
 	"github.com/mikeb26/spotsh"
 )
@@ -76,5 +77,79 @@ func TestLaunch(t *testing.T) {
 	if launchResult.User != "ec2-user" {
 		t.Fatalf("launch returned unexpected user: %v",
 			launchResult.User)
+	}
+}
+
+func TestBuildFleetLaunchTemplateOverridesFiltersAzsWithoutSubnets(t *testing.T) {
+	region := "ap-southeast-5"
+	iType := types.InstanceType("c8i.48xlarge")
+	spotPriceResult := newTestSpotPriceResult(region, iType,
+		map[string]float64{
+			"ap-southeast-5b": 0.70,
+			"ap-southeast-5c": 0.88,
+		})
+
+	overrides := buildFleetLaunchTemplateOverrides(region,
+		[]types.InstanceType{iType}, spotPriceResult,
+		map[string]string{"ap-southeast-5c": "subnet-c"})
+
+	if len(overrides) != 1 {
+		t.Fatalf("expected 1 override, got %v", len(overrides))
+	}
+	if overrides[0].InstanceType != iType {
+		t.Fatalf("unexpected instance type: %v", overrides[0].InstanceType)
+	}
+	if overrides[0].SubnetId == nil || *overrides[0].SubnetId != "subnet-c" {
+		t.Fatalf("unexpected subnet id: %v", overrides[0].SubnetId)
+	}
+}
+
+func TestBuildFleetLaunchTemplateOverridesSortsBySpotPrice(t *testing.T) {
+	region := "ap-southeast-5"
+	iType := types.InstanceType("c8i.48xlarge")
+	spotPriceResult := newTestSpotPriceResult(region, iType,
+		map[string]float64{
+			"ap-southeast-5a": 0.90,
+			"ap-southeast-5c": 0.88,
+		})
+
+	overrides := buildFleetLaunchTemplateOverrides(region,
+		[]types.InstanceType{iType}, spotPriceResult,
+		map[string]string{
+			"ap-southeast-5a": "subnet-a",
+			"ap-southeast-5c": "subnet-c",
+		})
+
+	if len(overrides) != 2 {
+		t.Fatalf("expected 2 overrides, got %v", len(overrides))
+	}
+	if overrides[0].SubnetId == nil || *overrides[0].SubnetId != "subnet-c" {
+		t.Fatalf("expected cheapest subnet first, got %v", overrides[0].SubnetId)
+	}
+}
+
+func newTestSpotPriceResult(region string, iType types.InstanceType,
+	azPrices map[string]float64) *LookupEc2SpotPriceResult {
+
+	lookupReg := &LookupEc2SpotPriceRegion{
+		Region: region,
+		Azs:    make(map[string]*LookupEc2SpotPriceAz),
+	}
+	for azName, price := range azPrices {
+		lookupReg.Azs[azName] = &LookupEc2SpotPriceAz{
+			AzName:   azName,
+			CurPrice: price,
+		}
+	}
+
+	return &LookupEc2SpotPriceResult{
+		InstanceTypes: map[types.InstanceType]*LookupEc2SpotPriceIType{
+			iType: {
+				InstanceType: iType,
+				Regions: map[string]*LookupEc2SpotPriceRegion{
+					region: lookupReg,
+				},
+			},
+		},
 	}
 }

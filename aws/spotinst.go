@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -322,20 +323,17 @@ func runInstance(ctx context.Context, awsCfg aws.Config,
 	}
 
 	if len(runOutput.Instances) != 1 {
-		deleteInput := &ec2.DeleteFleetsInput{
-			FleetIds:           []string{*runOutput.FleetId},
-			TerminateInstances: aws.Bool(true),
-		}
-		_, _ = ec2Client.DeleteFleets(ctx, deleteInput)
-		return fmt.Errorf("Unable to create instances at this price")
+		deleteFleet(ctx, ec2Client, runOutput.FleetId)
+		return newCreateFleetFailureError(runOutput, spotPrice,
+			fmt.Sprintf("EC2 Fleet launched %d instance groups; expected 1",
+				len(runOutput.Instances)))
 	}
 	if len(runOutput.Instances[0].InstanceIds) != 1 {
-		deleteInput := &ec2.DeleteFleetsInput{
-			FleetIds:           []string{*runOutput.FleetId},
-			TerminateInstances: aws.Bool(true),
-		}
-		_, _ = ec2Client.DeleteFleets(ctx, deleteInput)
-		return fmt.Errorf("Unable to create instances at this price")
+		deleteFleet(ctx, ec2Client, runOutput.FleetId)
+		return newCreateFleetFailureError(runOutput, spotPrice,
+			fmt.Sprintf("EC2 Fleet launched %d instances for %s; expected 1",
+				len(runOutput.Instances[0].InstanceIds),
+				runOutput.Instances[0].InstanceType))
 	}
 
 	instanceId := runOutput.Instances[0].InstanceIds[0]
@@ -371,6 +369,95 @@ func runInstance(ctx context.Context, awsCfg aws.Config,
 	}
 
 	return nil
+}
+
+func deleteFleet(ctx context.Context, ec2Client *ec2.Client, fleetId *string) {
+	if fleetId == nil {
+		return
+	}
+
+	deleteInput := &ec2.DeleteFleetsInput{
+		FleetIds:           []string{*fleetId},
+		TerminateInstances: aws.Bool(true),
+	}
+	_, _ = ec2Client.DeleteFleets(ctx, deleteInput)
+}
+
+func newCreateFleetFailureError(runOutput *ec2.CreateFleetOutput,
+	spotPrice string, summary string) error {
+
+	msgParts := []string{
+		fmt.Sprintf("unable to create instances at max spot price %s", spotPrice),
+	}
+	if runOutput.FleetId != nil {
+		msgParts = append(msgParts, fmt.Sprintf("fleet %s", *runOutput.FleetId))
+	}
+	if summary != "" {
+		msgParts = append(msgParts, summary)
+	}
+
+	if len(runOutput.Errors) == 0 {
+		msgParts = append(msgParts, "EC2 Fleet did not return launch error details")
+	} else {
+		msgParts = append(msgParts,
+			fmt.Sprintf("EC2 Fleet errors: %s",
+				formatCreateFleetErrors(runOutput.Errors)))
+	}
+
+	return fmt.Errorf("%s", strings.Join(msgParts, "; "))
+}
+
+func formatCreateFleetErrors(fleetErrors []types.CreateFleetError) string {
+	formattedErrors := make([]string, 0, len(fleetErrors))
+	for _, fleetErr := range fleetErrors {
+		details := make([]string, 0)
+
+		if fleetErr.LaunchTemplateAndOverrides != nil &&
+			fleetErr.LaunchTemplateAndOverrides.Overrides != nil {
+			overrides := fleetErr.LaunchTemplateAndOverrides.Overrides
+			if overrides.InstanceType != "" {
+				details = append(details,
+					fmt.Sprintf("instanceType=%s", overrides.InstanceType))
+			}
+			if overrides.AvailabilityZone != nil {
+				details = append(details,
+					fmt.Sprintf("availabilityZone=%s", *overrides.AvailabilityZone))
+			}
+			if overrides.AvailabilityZoneId != nil {
+				details = append(details,
+					fmt.Sprintf("availabilityZoneId=%s", *overrides.AvailabilityZoneId))
+			}
+			if overrides.SubnetId != nil {
+				details = append(details,
+					fmt.Sprintf("subnetId=%s", *overrides.SubnetId))
+			}
+		}
+
+		if fleetErr.Lifecycle != "" {
+			details = append(details,
+				fmt.Sprintf("lifecycle=%s", fleetErr.Lifecycle))
+		}
+
+		errorCode := aws.ToString(fleetErr.ErrorCode)
+		errorMessage := aws.ToString(fleetErr.ErrorMessage)
+		switch {
+		case errorCode != "" && errorMessage != "":
+			details = append(details,
+				fmt.Sprintf("%s: %s", errorCode, errorMessage))
+		case errorCode != "":
+			details = append(details, errorCode)
+		case errorMessage != "":
+			details = append(details, errorMessage)
+		}
+
+		if len(details) == 0 {
+			details = append(details, "unknown EC2 Fleet launch error")
+		}
+
+		formattedErrors = append(formattedErrors, strings.Join(details, ", "))
+	}
+
+	return strings.Join(formattedErrors, "; ")
 }
 
 func TerminateInstance(awsCfg aws.Config, instanceId string) error {

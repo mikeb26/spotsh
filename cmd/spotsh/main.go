@@ -984,12 +984,14 @@ func priceMain(awsCfg aws.Config, args []string) error {
 		return err
 	}
 
+	var allAzs bool
 	f := flag.NewFlagSet("spotsh price", flag.ContinueOnError)
 	iTypeList := iTypeSlice2String(iaws.DefaultInstanceTypes)
 	if len(launchArgs.InstanceTypes) > 0 {
 		iTypeList = iTypeSlice2String(launchArgs.InstanceTypes)
 	}
 	f.StringVar(&iTypeList, "types", iTypeList, "Instance types")
+	f.BoolVar(&allAzs, "all-azs", false, "Display spot prices for all availability zones")
 	err = f.Parse(args)
 	if err != nil {
 		return err
@@ -1007,23 +1009,38 @@ func priceMain(awsCfg aws.Config, args []string) error {
 				continue
 			}
 
-			lookupAz := lookupReg.CheapestAz
-			placementScore := "-"
-			if lookupAz.PlacementScore != 0 {
-				placementScore = fmt.Sprintf("%v/10", lookupAz.PlacementScore)
+			if allAzs {
+				for _, lookupAz := range lookupReg.Azs {
+					printSpotPriceLine(lookupResult, lookupInst, lookupReg, lookupAz)
+				}
+			} else {
+				printSpotPriceLine(lookupResult, lookupInst, lookupReg,
+					lookupReg.CheapestAz)
 			}
-			if lookupReg == lookupInst.CheapestRegion &&
-				lookupInst == lookupResult.CheapestIType {
-				fmt.Printf(" ** ")
-			}
-
-			fmt.Printf("%v - %v - %v - $%v/hr - %v\n", lookupInst.InstanceType,
-				lookupReg.Region, lookupAz.AzName, lookupAz.CurPrice,
-				placementScore)
 		}
 	}
 
 	return nil
+}
+
+func printSpotPriceLine(lookupResult *iaws.LookupEc2SpotPriceResult,
+	lookupInst *iaws.LookupEc2SpotPriceIType,
+	lookupReg *iaws.LookupEc2SpotPriceRegion,
+	lookupAz *iaws.LookupEc2SpotPriceAz) {
+
+	placementScore := "-"
+	if lookupAz.PlacementScore != 0 {
+		placementScore = fmt.Sprintf("%v/10", lookupAz.PlacementScore)
+	}
+	if lookupReg == lookupInst.CheapestRegion &&
+		lookupInst == lookupResult.CheapestIType &&
+		lookupAz == lookupReg.CheapestAz {
+		fmt.Printf(" ** ")
+	}
+
+	fmt.Printf("%v - %v - %v - $%v/hr - %v\n", lookupInst.InstanceType,
+		lookupReg.Region, lookupAz.AzName, lookupAz.CurPrice,
+		placementScore)
 }
 
 func main() {

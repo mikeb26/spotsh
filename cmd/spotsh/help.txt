@@ -55,6 +55,8 @@ GLOBALFLAGS:                                    | DEFAULT
 PRICEFLAGS:                                     | DEFAULT
   --types <instance_type>[,<instance_type>...]  | c5a.large,c5.large,\
                                                   c6i.large,c6a.large
+  --all-azs                                     | false; display all
+                                                  availability zones
 
 INFOFLAGS:                                      | DEFAULT
   --instances                                   | true

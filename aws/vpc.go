@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"io/ioutil"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -42,39 +43,61 @@ func getExternalIP() (string, error) {
 	return string(ip), nil
 }
 
-func addSshIngressRule(ctx context.Context, host string, ec2Client *ec2.Client,
-	sgId string) error {
+func parseExternalIP(externalIP string) (net.IP, error) {
+	ip := net.ParseIP(strings.TrimSpace(externalIP))
+	if ip == nil {
+		return nil, fmt.Errorf("invalid external IP: %q", externalIP)
+	}
 
-	myIp, err := getExternalIP()
+	return ip, nil
+}
+
+func addSshIngressRule(ctx context.Context, host string, externalIP string,
+	ec2Client *ec2.Client, sgId string) error {
+
+	ip, err := parseExternalIP(externalIP)
 	if err != nil {
 		return err
 	}
-	cidrBlock := fmt.Sprintf("%v/32", myIp)
-	permissions := []types.IpPermission{
-		{
-			IpProtocol: aws.String("tcp"),
-			FromPort:   aws.Int32(22),
-			ToPort:     aws.Int32(22),
-			IpRanges: []types.IpRange{
-				{
-					CidrIp:      aws.String(cidrBlock),
-					Description: aws.String(fmt.Sprintf("allow ssh from %v (added by spotsh)", host)),
-				},
+	description := aws.String(fmt.Sprintf("allow ssh from %v (added by spotsh)",
+		host))
+	permission := types.IpPermission{
+		IpProtocol: aws.String("tcp"),
+		FromPort:   aws.Int32(22),
+		ToPort:     aws.Int32(22),
+	}
+	if ipv4 := ip.To4(); ipv4 != nil {
+		permission.IpRanges = []types.IpRange{
+			{
+				CidrIp:      aws.String(fmt.Sprintf("%v/32", ipv4.String())),
+				Description: description,
 			},
-		},
+		}
+	} else {
+		permission.Ipv6Ranges = []types.Ipv6Range{
+			{
+				CidrIpv6:    aws.String(fmt.Sprintf("%v/128", ip.String())),
+				Description: description,
+			},
+		}
 	}
 
 	input := &ec2.AuthorizeSecurityGroupIngressInput{
 		GroupId:       aws.String(sgId),
-		IpPermissions: permissions,
+		IpPermissions: []types.IpPermission{permission},
 	}
 
 	_, err = ec2Client.AuthorizeSecurityGroupIngress(ctx, input)
 	return err
 }
 
-func hasSshIngressRule(ctx context.Context, host string, ec2Client *ec2.Client,
-	sgId string) bool {
+func hasSshIngressRule(ctx context.Context, externalIP string,
+	ec2Client *ec2.Client, sgId string) (bool, error) {
+
+	ip, err := parseExternalIP(externalIP)
+	if err != nil {
+		return false, err
+	}
 
 	input := &ec2.DescribeSecurityGroupsInput{
 		GroupIds: []string{sgId},
@@ -82,29 +105,62 @@ func hasSshIngressRule(ctx context.Context, host string, ec2Client *ec2.Client,
 
 	resp, err := ec2Client.DescribeSecurityGroups(ctx, input)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to get security groups: %v", err)
-		return false
+		return false, fmt.Errorf("failed to get security groups: %w", err)
 	}
 
 	for _, sg := range resp.SecurityGroups {
 		for _, perm := range sg.IpPermissions {
-			for _, descr := range perm.IpRanges {
-				if strings.Contains(*descr.Description, "ssh") &&
-					strings.Contains(*descr.Description, host) {
-					return true
-				}
-			}
-
-			for _, descr := range perm.Ipv6Ranges {
-				if strings.Contains(*descr.Description, "ssh") &&
-					strings.Contains(*descr.Description, host) {
-					return true
-				}
+			if sshPermissionCoversIP(perm, ip) {
+				return true, nil
 			}
 		}
 	}
 
+	return false, nil
+}
+
+func sshPermissionCoversIP(perm types.IpPermission, ip net.IP) bool {
+	if !ipPermissionAllowsSsh(perm) {
+		return false
+	}
+
+	for _, ipRange := range perm.IpRanges {
+		if cidrContainsIP(aws.ToString(ipRange.CidrIp), ip) {
+			return true
+		}
+	}
+
+	for _, ipv6Range := range perm.Ipv6Ranges {
+		if cidrContainsIP(aws.ToString(ipv6Range.CidrIpv6), ip) {
+			return true
+		}
+	}
+
 	return false
+}
+
+func ipPermissionAllowsSsh(perm types.IpPermission) bool {
+	protocol := strings.ToLower(aws.ToString(perm.IpProtocol))
+	if protocol == "-1" {
+		return true
+	}
+	if protocol != "tcp" && protocol != "6" {
+		return false
+	}
+	if perm.FromPort == nil || perm.ToPort == nil {
+		return false
+	}
+
+	return aws.ToInt32(perm.FromPort) <= 22 && aws.ToInt32(perm.ToPort) >= 22
+}
+
+func cidrContainsIP(cidr string, ip net.IP) bool {
+	_, ipNet, err := net.ParseCIDR(strings.TrimSpace(cidr))
+	if err != nil {
+		return false
+	}
+
+	return ipNet.Contains(ip)
 }
 
 func CheckOrAddSshIngressRule(awsCfg aws.Config, sgId string) error {
@@ -115,12 +171,20 @@ func CheckOrAddSshIngressRule(awsCfg aws.Config, sgId string) error {
 	}
 
 	ctx := context.Background()
+	externalIP, err := getExternalIP()
+	if err != nil {
+		return err
+	}
 
-	if hasSshIngressRule(ctx, host, ec2Client, sgId) {
+	hasRule, err := hasSshIngressRule(ctx, externalIP, ec2Client, sgId)
+	if err != nil {
+		return err
+	}
+	if hasRule {
 		return nil
 	}
 
-	return addSshIngressRule(context.Background(), host, ec2Client, sgId)
+	return addSshIngressRule(ctx, host, externalIP, ec2Client, sgId)
 }
 
 func getDefaultSecurityGroupId(awsCfg aws.Config,

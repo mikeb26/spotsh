@@ -1070,8 +1070,8 @@ func printSpotPriceLine(lookupResult *iaws.LookupEc2SpotPriceResult,
 		fmt.Printf(" ** ")
 	}
 
-	fmt.Printf("%v - %v - %v - $%v/hr - %v\n", lookupInst.InstanceType,
-		lookupReg.Region, lookupAz.AzName, lookupAz.CurPrice,
+	fmt.Printf("%v - %v - $%v/hr - %.4v¢/vcpu_hr - %v\n", lookupInst.InstanceType,
+		lookupAz.AzName, lookupAz.CurPrice, lookupAz.CurPriceVCPU*100,
 		placementScore)
 }
 

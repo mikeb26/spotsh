@@ -21,6 +21,7 @@ import (
 type LookupEc2SpotPriceAz struct {
 	AzName         string
 	CurPrice       float64
+	CurPriceVCPU   float64
 	PlacementScore int32
 }
 
@@ -155,6 +156,7 @@ func lookupEc2SpotPricesOneRegion(curReg string, iTypes []types.InstanceType,
 		lookupAz := &LookupEc2SpotPriceAz{
 			AzName:         azName,
 			CurPrice:       curPrice,
+			CurPriceVCPU:   curPrice / float64(getVCPUCount(iType)),
 			PlacementScore: placementScores[azId],
 		}
 

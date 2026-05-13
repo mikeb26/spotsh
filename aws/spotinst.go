@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -43,6 +44,322 @@ var DefaultInstanceTypes = []types.InstanceType{
 	types.InstanceTypeC8iLarge,
 	types.InstanceTypeC8aLarge,
 	types.InstanceTypeC8iFlexLarge,
+}
+
+var vcpuCounts = map[types.InstanceType]int{
+	// "C" families
+	types.InstanceTypeC8aMedium: 1,
+
+	types.InstanceTypeC5Large:      2,
+	types.InstanceTypeC5aLarge:     2,
+	types.InstanceTypeC6iLarge:     2,
+	types.InstanceTypeC6aLarge:     2,
+	types.InstanceTypeC7iLarge:     2,
+	types.InstanceTypeC7aLarge:     2,
+	types.InstanceTypeC7iFlexLarge: 2,
+	types.InstanceTypeC8iLarge:     2,
+	types.InstanceTypeC8aLarge:     2,
+	types.InstanceTypeC8iFlexLarge: 2,
+
+	types.InstanceTypeC5Xlarge:      4,
+	types.InstanceTypeC5aXlarge:     4,
+	types.InstanceTypeC6iXlarge:     4,
+	types.InstanceTypeC6aXlarge:     4,
+	types.InstanceTypeC7iXlarge:     4,
+	types.InstanceTypeC7aXlarge:     4,
+	types.InstanceTypeC7iFlexXlarge: 4,
+	types.InstanceTypeC8iXlarge:     4,
+	types.InstanceTypeC8aXlarge:     4,
+	types.InstanceTypeC8iFlexXlarge: 4,
+
+	types.InstanceTypeC52xlarge:      8,
+	types.InstanceTypeC5a2xlarge:     8,
+	types.InstanceTypeC6i2xlarge:     8,
+	types.InstanceTypeC6a2xlarge:     8,
+	types.InstanceTypeC7i2xlarge:     8,
+	types.InstanceTypeC7a2xlarge:     8,
+	types.InstanceTypeC7iFlex2xlarge: 8,
+	types.InstanceTypeC8i2xlarge:     8,
+	types.InstanceTypeC8a2xlarge:     8,
+	types.InstanceTypeC8iFlex2xlarge: 8,
+
+	types.InstanceTypeC54xlarge:      16,
+	types.InstanceTypeC5a4xlarge:     16,
+	types.InstanceTypeC6i4xlarge:     16,
+	types.InstanceTypeC6a4xlarge:     16,
+	types.InstanceTypeC7i4xlarge:     16,
+	types.InstanceTypeC7a4xlarge:     16,
+	types.InstanceTypeC7iFlex4xlarge: 16,
+	types.InstanceTypeC8i4xlarge:     16,
+	types.InstanceTypeC8a4xlarge:     16,
+	types.InstanceTypeC8iFlex4xlarge: 16,
+
+	types.InstanceTypeC5a8xlarge:     32,
+	types.InstanceTypeC6i8xlarge:     32,
+	types.InstanceTypeC6a8xlarge:     32,
+	types.InstanceTypeC7i8xlarge:     32,
+	types.InstanceTypeC7a8xlarge:     32,
+	types.InstanceTypeC7iFlex8xlarge: 32,
+	types.InstanceTypeC8i8xlarge:     32,
+	types.InstanceTypeC8a8xlarge:     32,
+	types.InstanceTypeC8iFlex8xlarge: 32,
+
+	types.InstanceTypeC59xlarge: 36,
+
+	types.InstanceTypeC512xlarge:      48,
+	types.InstanceTypeC5a12xlarge:     48,
+	types.InstanceTypeC6i12xlarge:     48,
+	types.InstanceTypeC6a12xlarge:     48,
+	types.InstanceTypeC7i12xlarge:     48,
+	types.InstanceTypeC7a12xlarge:     48,
+	types.InstanceTypeC7iFlex12xlarge: 48,
+	types.InstanceTypeC8i12xlarge:     48,
+	types.InstanceTypeC8a12xlarge:     48,
+	types.InstanceTypeC8iFlex12xlarge: 48,
+
+	types.InstanceTypeC5a16xlarge:     64,
+	types.InstanceTypeC6i16xlarge:     64,
+	types.InstanceTypeC6a16xlarge:     64,
+	types.InstanceTypeC7i16xlarge:     64,
+	types.InstanceTypeC7a16xlarge:     64,
+	types.InstanceTypeC7iFlex16xlarge: 64,
+	types.InstanceTypeC8i16xlarge:     64,
+	types.InstanceTypeC8a16xlarge:     64,
+	types.InstanceTypeC8iFlex16xlarge: 64,
+
+	types.InstanceTypeC518xlarge: 72,
+
+	types.InstanceTypeC524xlarge:  96,
+	types.InstanceTypeC5a24xlarge: 96,
+	types.InstanceTypeC6i24xlarge: 96,
+	types.InstanceTypeC6a24xlarge: 96,
+	types.InstanceTypeC7i24xlarge: 96,
+	types.InstanceTypeC7a24xlarge: 96,
+	types.InstanceTypeC8i24xlarge: 96,
+	types.InstanceTypeC8a24xlarge: 96,
+
+	types.InstanceTypeC6i32xlarge: 128,
+	types.InstanceTypeC6a32xlarge: 128,
+	types.InstanceTypeC7a32xlarge: 128,
+	types.InstanceTypeC8i32xlarge: 128,
+
+	types.InstanceTypeC6a48xlarge: 192,
+	types.InstanceTypeC7i48xlarge: 192,
+	types.InstanceTypeC7a48xlarge: 192,
+	types.InstanceTypeC8i48xlarge: 192,
+	types.InstanceTypeC8a48xlarge: 192,
+
+	types.InstanceTypeC8i96xlarge: 384,
+
+	// "M" families
+	types.InstanceTypeM8aMedium: 1,
+
+	types.InstanceTypeM5Large:      2,
+	types.InstanceTypeM5aLarge:     2,
+	types.InstanceTypeM6iLarge:     2,
+	types.InstanceTypeM6aLarge:     2,
+	types.InstanceTypeM7iLarge:     2,
+	types.InstanceTypeM7aLarge:     2,
+	types.InstanceTypeM7iFlexLarge: 2,
+	types.InstanceTypeM8iLarge:     2,
+	types.InstanceTypeM8aLarge:     2,
+	types.InstanceTypeM8iFlexLarge: 2,
+
+	types.InstanceTypeM5Xlarge:      4,
+	types.InstanceTypeM5aXlarge:     4,
+	types.InstanceTypeM6iXlarge:     4,
+	types.InstanceTypeM6aXlarge:     4,
+	types.InstanceTypeM7iXlarge:     4,
+	types.InstanceTypeM7aXlarge:     4,
+	types.InstanceTypeM7iFlexXlarge: 4,
+	types.InstanceTypeM8iXlarge:     4,
+	types.InstanceTypeM8aXlarge:     4,
+	types.InstanceTypeM8iFlexXlarge: 4,
+
+	types.InstanceTypeM52xlarge:      8,
+	types.InstanceTypeM5a2xlarge:     8,
+	types.InstanceTypeM6i2xlarge:     8,
+	types.InstanceTypeM6a2xlarge:     8,
+	types.InstanceTypeM7i2xlarge:     8,
+	types.InstanceTypeM7a2xlarge:     8,
+	types.InstanceTypeM7iFlex2xlarge: 8,
+	types.InstanceTypeM8i2xlarge:     8,
+	types.InstanceTypeM8a2xlarge:     8,
+	types.InstanceTypeM8iFlex2xlarge: 8,
+
+	types.InstanceTypeM54xlarge:      16,
+	types.InstanceTypeM5a4xlarge:     16,
+	types.InstanceTypeM6i4xlarge:     16,
+	types.InstanceTypeM6a4xlarge:     16,
+	types.InstanceTypeM7i4xlarge:     16,
+	types.InstanceTypeM7a4xlarge:     16,
+	types.InstanceTypeM7iFlex4xlarge: 16,
+	types.InstanceTypeM8i4xlarge:     16,
+	types.InstanceTypeM8a4xlarge:     16,
+	types.InstanceTypeM8iFlex4xlarge: 16,
+
+	types.InstanceTypeM58xlarge:      32,
+	types.InstanceTypeM5a8xlarge:     32,
+	types.InstanceTypeM6i8xlarge:     32,
+	types.InstanceTypeM6a8xlarge:     32,
+	types.InstanceTypeM7i8xlarge:     32,
+	types.InstanceTypeM7a8xlarge:     32,
+	types.InstanceTypeM7iFlex8xlarge: 32,
+	types.InstanceTypeM8i8xlarge:     32,
+	types.InstanceTypeM8a8xlarge:     32,
+	types.InstanceTypeM8iFlex8xlarge: 32,
+
+	types.InstanceTypeM512xlarge:      48,
+	types.InstanceTypeM5a12xlarge:     48,
+	types.InstanceTypeM6i12xlarge:     48,
+	types.InstanceTypeM6a12xlarge:     48,
+	types.InstanceTypeM7i12xlarge:     48,
+	types.InstanceTypeM7a12xlarge:     48,
+	types.InstanceTypeM7iFlex12xlarge: 48,
+	types.InstanceTypeM8i12xlarge:     48,
+	types.InstanceTypeM8a12xlarge:     48,
+	types.InstanceTypeM8iFlex12xlarge: 48,
+
+	types.InstanceTypeM516xlarge:      64,
+	types.InstanceTypeM5a16xlarge:     64,
+	types.InstanceTypeM6i16xlarge:     64,
+	types.InstanceTypeM6a16xlarge:     64,
+	types.InstanceTypeM7i16xlarge:     64,
+	types.InstanceTypeM7a16xlarge:     64,
+	types.InstanceTypeM7iFlex16xlarge: 64,
+	types.InstanceTypeM8i16xlarge:     64,
+	types.InstanceTypeM8a16xlarge:     64,
+	types.InstanceTypeM8iFlex16xlarge: 64,
+
+	types.InstanceTypeM524xlarge:  96,
+	types.InstanceTypeM5a24xlarge: 96,
+	types.InstanceTypeM6i24xlarge: 96,
+	types.InstanceTypeM6a24xlarge: 96,
+	types.InstanceTypeM7i24xlarge: 96,
+	types.InstanceTypeM7a24xlarge: 96,
+	types.InstanceTypeM8i24xlarge: 96,
+	types.InstanceTypeM8a24xlarge: 96,
+
+	types.InstanceTypeM6i32xlarge: 128,
+	types.InstanceTypeM6a32xlarge: 128,
+	types.InstanceTypeM7a32xlarge: 128,
+	types.InstanceTypeM8i32xlarge: 128,
+
+	types.InstanceTypeM6a48xlarge: 192,
+	types.InstanceTypeM7i48xlarge: 192,
+	types.InstanceTypeM7a48xlarge: 192,
+	types.InstanceTypeM8i48xlarge: 192,
+	types.InstanceTypeM8a48xlarge: 192,
+
+	types.InstanceTypeM8i96xlarge: 384,
+
+	// "R" families
+	types.InstanceTypeR8aMedium: 1,
+
+	types.InstanceTypeR5Large:      2,
+	types.InstanceTypeR5aLarge:     2,
+	types.InstanceTypeR6iLarge:     2,
+	types.InstanceTypeR6aLarge:     2,
+	types.InstanceTypeR7iLarge:     2,
+	types.InstanceTypeR7aLarge:     2,
+	types.InstanceTypeR8iLarge:     2,
+	types.InstanceTypeR8aLarge:     2,
+	types.InstanceTypeR8iFlexLarge: 2,
+
+	types.InstanceTypeR5Xlarge:      4,
+	types.InstanceTypeR5aXlarge:     4,
+	types.InstanceTypeR6iXlarge:     4,
+	types.InstanceTypeR6aXlarge:     4,
+	types.InstanceTypeR7iXlarge:     4,
+	types.InstanceTypeR7aXlarge:     4,
+	types.InstanceTypeR8iXlarge:     4,
+	types.InstanceTypeR8aXlarge:     4,
+	types.InstanceTypeR8iFlexXlarge: 4,
+
+	types.InstanceTypeR52xlarge:      8,
+	types.InstanceTypeR5a2xlarge:     8,
+	types.InstanceTypeR6i2xlarge:     8,
+	types.InstanceTypeR6a2xlarge:     8,
+	types.InstanceTypeR7i2xlarge:     8,
+	types.InstanceTypeR7a2xlarge:     8,
+	types.InstanceTypeR8i2xlarge:     8,
+	types.InstanceTypeR8a2xlarge:     8,
+	types.InstanceTypeR8iFlex2xlarge: 8,
+
+	types.InstanceTypeR54xlarge:      16,
+	types.InstanceTypeR5a4xlarge:     16,
+	types.InstanceTypeR6i4xlarge:     16,
+	types.InstanceTypeR6a4xlarge:     16,
+	types.InstanceTypeR7i4xlarge:     16,
+	types.InstanceTypeR7a4xlarge:     16,
+	types.InstanceTypeR8i4xlarge:     16,
+	types.InstanceTypeR8a4xlarge:     16,
+	types.InstanceTypeR8iFlex4xlarge: 16,
+
+	types.InstanceTypeR58xlarge:      32,
+	types.InstanceTypeR5a8xlarge:     32,
+	types.InstanceTypeR6i8xlarge:     32,
+	types.InstanceTypeR6a8xlarge:     32,
+	types.InstanceTypeR7i8xlarge:     32,
+	types.InstanceTypeR7a8xlarge:     32,
+	types.InstanceTypeR8i8xlarge:     32,
+	types.InstanceTypeR8a8xlarge:     32,
+	types.InstanceTypeR8iFlex8xlarge: 32,
+
+	types.InstanceTypeR512xlarge:      48,
+	types.InstanceTypeR5a12xlarge:     48,
+	types.InstanceTypeR6i12xlarge:     48,
+	types.InstanceTypeR6a12xlarge:     48,
+	types.InstanceTypeR7i12xlarge:     48,
+	types.InstanceTypeR7a12xlarge:     48,
+	types.InstanceTypeR8i12xlarge:     48,
+	types.InstanceTypeR8a12xlarge:     48,
+	types.InstanceTypeR8iFlex12xlarge: 48,
+
+	types.InstanceTypeR516xlarge:      64,
+	types.InstanceTypeR5a16xlarge:     64,
+	types.InstanceTypeR6i16xlarge:     64,
+	types.InstanceTypeR6a16xlarge:     64,
+	types.InstanceTypeR7i16xlarge:     64,
+	types.InstanceTypeR7a16xlarge:     64,
+	types.InstanceTypeR8i16xlarge:     64,
+	types.InstanceTypeR8a16xlarge:     64,
+	types.InstanceTypeR8iFlex16xlarge: 64,
+
+	types.InstanceTypeR524xlarge:  96,
+	types.InstanceTypeR5a24xlarge: 96,
+	types.InstanceTypeR6i24xlarge: 96,
+	types.InstanceTypeR6a24xlarge: 96,
+	types.InstanceTypeR7i24xlarge: 96,
+	types.InstanceTypeR7a24xlarge: 96,
+	types.InstanceTypeR8i24xlarge: 96,
+	types.InstanceTypeR8a24xlarge: 96,
+
+	types.InstanceTypeR6i32xlarge: 128,
+	types.InstanceTypeR6a32xlarge: 128,
+	types.InstanceTypeR7a32xlarge: 128,
+	types.InstanceTypeR8i32xlarge: 128,
+
+	types.InstanceTypeR6a48xlarge: 192,
+	types.InstanceTypeR7i48xlarge: 192,
+	types.InstanceTypeR7a48xlarge: 192,
+	types.InstanceTypeR8i48xlarge: 192,
+	types.InstanceTypeR8a48xlarge: 192,
+
+	types.InstanceTypeR8i96xlarge: 384,
+}
+
+func getVCPUCount(iType types.InstanceType) int {
+
+	count, ok := vcpuCounts[iType]
+	if !ok {
+		fmt.Fprintf(os.Stderr, "WARN: getVCPUCount() missing vcpu def for %v\n",
+			iType)
+
+		return 1
+	}
+
+	return count
 }
 
 const DefaultOperatingSystem = spotsh.AmazonLinux2023

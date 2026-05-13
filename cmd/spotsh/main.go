@@ -194,6 +194,7 @@ func launchMain(awsCfg aws.Config, args []string) error {
 	}
 
 	var os string
+	var azList string
 
 	f := flag.NewFlagSet("spotsh launch", flag.ContinueOnError)
 	f.StringVar(&os, "os", "", "Operating System; e.g. amzn2")
@@ -209,6 +210,8 @@ func launchMain(awsCfg aws.Config, args []string) error {
 		"IAM Role to attach to instance")
 	f.StringVar(&launchArgs.InitCmd, "initcmd", launchArgs.InitCmd,
 		"Initial command to run in the instance")
+	f.StringVar(&azList, "azs", "",
+		"Availability zones to launch in; e.g. us-east-2a,us-east-2b")
 	iTypeList := iTypeSlice2String(launchArgs.InstanceTypes)
 	f.StringVar(&iTypeList, "types", iTypeList, "Instance types")
 	f.StringVar(&launchArgs.MaxSpotPrice, "spotprice", launchArgs.MaxSpotPrice,
@@ -219,6 +222,7 @@ func launchMain(awsCfg aws.Config, args []string) error {
 	}
 
 	launchArgs.InstanceTypes = string2iTypeSlice(iTypeList)
+	launchArgs.AzNames = string2StringSlice(azList)
 	if launchArgs.AmiId != "" || launchArgs.AmiName != "" {
 		if launchArgs.AmiId != "" && launchArgs.AmiName != "" {
 			return fmt.Errorf("--ami and --ami-name are mutually exclusive; choose one but not both flags simultaneously")
@@ -282,6 +286,20 @@ func string2iTypeSlice(iTypeList string) []types.InstanceType {
 	}
 
 	return iTypes
+}
+
+func string2StringSlice(strList string) []string {
+	strs := make([]string, 0)
+
+	for _, str := range strings.Split(strList, ",") {
+		str = strings.TrimSpace(str)
+		if str == "" {
+			continue
+		}
+		strs = append(strs, str)
+	}
+
+	return strs
 }
 
 func stringSlice2iTypeSlice(iTypesStr []string) []types.InstanceType {

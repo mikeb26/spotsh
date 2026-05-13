@@ -56,6 +56,7 @@ type LaunchEc2SpotArgs struct {
 	AttachRoleName   string                 // optional; defaults to no attached role
 	InitCmd          string                 // optional; defaults to empty
 	InstanceTypes    []types.InstanceType   // optional; defaults to DefaultInstanceTypes
+	AzNames          []string               // optional; defaults to all AZs in the security group's VPC
 	MaxSpotPrice     string                 // optional; defaults to "0.08" (USD$/hour)
 	User             string                 // optional; defaults to Os's default user
 	RootVolSizeInGiB int32                  // optional; defaults to 64GiB
@@ -393,15 +394,63 @@ func getFleetLaunchTemplateOverrides(ctx context.Context, awsCfg aws.Config,
 		return nil, fmt.Errorf("failed to look up subnets for security group %v: %w",
 			sgId, err)
 	}
+	if len(launchArgs.AzNames) > 0 {
+		subnetIdsByAz, err = filterSubnetIdsByAz(subnetIdsByAz,
+			launchArgs.AzNames)
+		if err != nil {
+			return nil, fmt.Errorf("failed to apply availability zone constraints: %w",
+				err)
+		}
+	}
 
 	overrides := buildFleetLaunchTemplateOverrides(awsCfg.Region,
 		launchArgs.InstanceTypes, spotPriceResult, subnetIdsByAz)
 	if len(overrides) == 0 {
-		return nil, fmt.Errorf("could not find any launchable spot capacity pools in %v for instance types %v in security group %v's VPC; no AZ had current spot price data, current instance type offering, and an available subnet",
-			awsCfg.Region, launchArgs.InstanceTypes, sgId)
+		azConstraint := ""
+		if len(launchArgs.AzNames) > 0 {
+			azConstraint = fmt.Sprintf(" constrained to availability zones %v",
+				launchArgs.AzNames)
+		}
+		return nil, fmt.Errorf("could not find any launchable spot capacity pools in %v for instance types %v in security group %v's VPC%v; no AZ had current spot price data, current instance type offering, and an available subnet",
+			awsCfg.Region, launchArgs.InstanceTypes, sgId, azConstraint)
 	}
 
 	return overrides, nil
+}
+
+func filterSubnetIdsByAz(subnetIdsByAz map[string]string,
+	azNames []string) (map[string]string, error) {
+
+	filtered := make(map[string]string, len(azNames))
+	missingAzNames := make([]string, 0)
+	seenAzNames := make(map[string]struct{}, len(azNames))
+	for _, azName := range azNames {
+		if azName == "" {
+			continue
+		}
+		if _, ok := seenAzNames[azName]; ok {
+			continue
+		}
+		seenAzNames[azName] = struct{}{}
+
+		subnetId := subnetIdsByAz[azName]
+		if subnetId == "" {
+			missingAzNames = append(missingAzNames, azName)
+			continue
+		}
+
+		filtered[azName] = subnetId
+	}
+
+	if len(missingAzNames) > 0 {
+		return nil, fmt.Errorf("could not find available subnet for requested availability zone(s): %v",
+			strings.Join(missingAzNames, ","))
+	}
+	if len(filtered) == 0 {
+		return nil, fmt.Errorf("no availability zones were specified")
+	}
+
+	return filtered, nil
 }
 
 func buildFleetLaunchTemplateOverrides(region string,

@@ -128,6 +128,46 @@ func TestBuildFleetLaunchTemplateOverridesSortsBySpotPrice(t *testing.T) {
 	}
 }
 
+func TestFilterSubnetIdsByAz(t *testing.T) {
+	subnetIdsByAz := map[string]string{
+		"ap-southeast-5a": "subnet-a",
+		"ap-southeast-5b": "subnet-b",
+		"ap-southeast-5c": "subnet-c",
+	}
+
+	filtered, err := filterSubnetIdsByAz(subnetIdsByAz,
+		[]string{"ap-southeast-5c", "ap-southeast-5a"})
+	if err != nil {
+		t.Fatalf("filterSubnetIdsByAz failed: %v", err)
+	}
+	if len(filtered) != 2 {
+		t.Fatalf("expected 2 AZs, got %v", len(filtered))
+	}
+	if filtered["ap-southeast-5c"] != "subnet-c" {
+		t.Fatalf("unexpected subnet for ap-southeast-5c: %v",
+			filtered["ap-southeast-5c"])
+	}
+	if filtered["ap-southeast-5a"] != "subnet-a" {
+		t.Fatalf("unexpected subnet for ap-southeast-5a: %v",
+			filtered["ap-southeast-5a"])
+	}
+	if _, ok := filtered["ap-southeast-5b"]; ok {
+		t.Fatalf("unexpected unconstrained AZ in filtered results")
+	}
+}
+
+func TestFilterSubnetIdsByAzErrorsWhenAzHasNoSubnet(t *testing.T) {
+	_, err := filterSubnetIdsByAz(
+		map[string]string{"ap-southeast-5a": "subnet-a"},
+		[]string{"ap-southeast-5a", "ap-southeast-5c"})
+	if err == nil {
+		t.Fatalf("expected missing subnet error")
+	}
+	if !strings.Contains(err.Error(), "ap-southeast-5c") {
+		t.Fatalf("expected missing AZ in error, got %v", err)
+	}
+}
+
 func newTestSpotPriceResult(region string, iType types.InstanceType,
 	azPrices map[string]float64) *LookupEc2SpotPriceResult {
 

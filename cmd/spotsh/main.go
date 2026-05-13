@@ -195,6 +195,7 @@ func launchMain(awsCfg aws.Config, args []string) error {
 
 	var os string
 	var azList string
+	var user string
 
 	f := flag.NewFlagSet("spotsh launch", flag.ContinueOnError)
 	f.StringVar(&os, "os", "", "Operating System; e.g. amzn2")
@@ -202,7 +203,7 @@ func launchMain(awsCfg aws.Config, args []string) error {
 		"Amazon Machine Image id")
 	f.StringVar(&launchArgs.AmiName, "ami-name", launchArgs.AmiName,
 		"Name of an Amazon Machine Image")
-	f.StringVar(&launchArgs.User, "user", launchArgs.User, "username to ssh as")
+	f.StringVar(&user, "user", user, "username to ssh as")
 	f.StringVar(&launchArgs.KeyPair, "key", launchArgs.KeyPair, "EC2 keypair")
 	f.StringVar(&launchArgs.SecurityGroupId, "sgid", launchArgs.SecurityGroupId,
 		"Security Group Id")
@@ -220,6 +221,7 @@ func launchMain(awsCfg aws.Config, args []string) error {
 	if err != nil {
 		return err
 	}
+	launchArgs.User = user
 
 	launchArgs.InstanceTypes = string2iTypeSlice(iTypeList)
 	launchArgs.AzNames = string2StringSlice(azList)
@@ -229,6 +231,13 @@ func launchMain(awsCfg aws.Config, args []string) error {
 		}
 		if os != "" {
 			return fmt.Errorf("--os is mutually exclusive with --ami or --ami-name; choose one only")
+		}
+		if launchArgs.User == "" {
+			amiUser, err := iaws.GetAmiUser(awsCfg, launchArgs.AmiId,
+				launchArgs.AmiName)
+			if err == nil && amiUser != "" {
+				launchArgs.User = amiUser
+			}
 		}
 		if launchArgs.User == "" {
 			return fmt.Errorf("--user must be specified when launching by AMI id or AMI name so that spotsh knows which user to ssh as in the future")
@@ -245,7 +254,7 @@ func launchMain(awsCfg aws.Config, args []string) error {
 				return fmt.Errorf(sb.String())
 			}
 		}
-		if launchArgs.User != "" {
+		if user != "" {
 			return fmt.Errorf("--user is automatically determined by default or when --os is specified")
 		}
 	}

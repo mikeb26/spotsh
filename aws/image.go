@@ -7,9 +7,11 @@ package aws
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 
 	"github.com/mikeb26/spotsh"
@@ -146,6 +148,73 @@ func getAmiIdFromName(awsCfg aws.Config, ec2Client *ec2.Client,
 	return "", fmt.Errorf("Could not find ami id for %v", amiName)
 }
 
+func GetAmiUser(awsCfg aws.Config, amiId string, amiName string) (string, error) {
+	ec2Client := ec2.NewFromConfig(awsCfg)
+	if amiName != "" {
+		if amiId != "" {
+			return "", fmt.Errorf("Ami id and ami name are mutually exclusive; please specify one or the other")
+		}
+
+		var err error
+		amiId, err = getAmiIdFromName(awsCfg, ec2Client, amiName)
+		if err != nil {
+			return "", err
+		}
+	}
+	if amiId == "" {
+		return "", nil
+	}
+
+	image, err := describeSingleImage(context.Background(), ec2Client, amiId)
+	if err != nil {
+		return "", err
+	}
+
+	return getTagValueFromTags(image.Tags, DefaultTagPrefix+"."+UserTagSuffix)
+}
+
+func describeSingleImage(ctx context.Context, ec2Client *ec2.Client,
+	amiId string) (*types.Image, error) {
+
+	dryRun := false
+	descInput := &ec2.DescribeImagesInput{
+		DryRun:   &dryRun,
+		ImageIds: []string{amiId},
+	}
+	descOutput, err := ec2Client.DescribeImages(ctx, descInput)
+	if err != nil {
+		return nil, err
+	}
+	if len(descOutput.Images) != 1 {
+		return nil, fmt.Errorf("Unexpected image count returned(%v) for %v description",
+			len(descOutput.Images), amiId)
+	}
+
+	return &descOutput.Images[0], nil
+}
+
+func getTagValueFromTags(tags []types.Tag, tagKey string) (string, error) {
+	for _, tag := range tags {
+		if tag.Key == nil || tag.Value == nil {
+			continue
+		}
+		if *tag.Key == tagKey {
+			return *tag.Value, nil
+		}
+	}
+
+	for _, tag := range tags {
+		if tag.Key == nil || tag.Value == nil {
+			continue
+		}
+		if strings.HasSuffix(*tag.Key, "."+UserTagSuffix) {
+			return *tag.Value, nil
+		}
+	}
+
+	return "", nil
+}
+
 type LookupImageItem struct {
 	Id        string
 	Name      string
@@ -198,9 +267,23 @@ func CreateImage(awsCfg aws.Config, instanceId string, name string,
 	desc string) (string, error) {
 
 	ec2Client := ec2.NewFromConfig(awsCfg)
+	ctx := context.Background()
+
+	imageTags, err := getImageTagsFromInstance(ctx, ec2Client, instanceId)
+	if err != nil {
+		return "", err
+	}
 
 	input := &ec2.CreateImageInput{
 		InstanceId: aws.String(instanceId),
+	}
+	if len(imageTags) > 0 {
+		input.TagSpecifications = []types.TagSpecification{
+			{
+				ResourceType: types.ResourceTypeImage,
+				Tags:         imageTags,
+			},
+		}
 	}
 	if name != "" {
 		input.Name = aws.String(name)
@@ -209,10 +292,77 @@ func CreateImage(awsCfg aws.Config, instanceId string, name string,
 		input.Description = aws.String(desc)
 	}
 
-	result, err := ec2Client.CreateImage(context.Background(), input)
+	result, err := ec2Client.CreateImage(ctx, input)
 	if err != nil {
 		return "", err
 	}
 
 	return *result.ImageId, nil
+}
+
+func getImageTagsFromInstance(ctx context.Context, ec2Client *ec2.Client,
+	instanceId string) ([]types.Tag, error) {
+
+	dryRun := false
+	descInput := &ec2.DescribeInstancesInput{
+		DryRun:      &dryRun,
+		InstanceIds: []string{instanceId},
+	}
+	descOutput, err := ec2Client.DescribeInstances(ctx, descInput)
+	if err != nil {
+		return nil, err
+	}
+	if len(descOutput.Reservations) != 1 ||
+		len(descOutput.Reservations[0].Instances) != 1 {
+		return nil, fmt.Errorf("Unexpected instance count returned for %v description",
+			instanceId)
+	}
+
+	return getSpotshImageTags(descOutput.Reservations[0].Instances[0].Tags), nil
+}
+
+func getSpotshImageTags(tags []types.Tag) []types.Tag {
+	userTagKey := DefaultTagPrefix + "." + UserTagSuffix
+	osTagKey := DefaultTagPrefix + "." + OsTagSuffix
+	ret := make([]types.Tag, 0, 2)
+
+	for _, tagKey := range []string{userTagKey, osTagKey} {
+		if tagValue, ok := getExactTagValueFromTags(tags, tagKey); ok {
+			ret = append(ret, types.Tag{
+				Key:   aws.String(tagKey),
+				Value: aws.String(tagValue),
+			})
+		}
+	}
+	if len(ret) > 0 {
+		return ret
+	}
+
+	for _, tag := range tags {
+		if tag.Key == nil || tag.Value == nil {
+			continue
+		}
+		if strings.HasSuffix(*tag.Key, "."+UserTagSuffix) ||
+			strings.HasSuffix(*tag.Key, "."+OsTagSuffix) {
+			ret = append(ret, types.Tag{
+				Key:   aws.String(*tag.Key),
+				Value: aws.String(*tag.Value),
+			})
+		}
+	}
+
+	return ret
+}
+
+func getExactTagValueFromTags(tags []types.Tag, tagKey string) (string, bool) {
+	for _, tag := range tags {
+		if tag.Key == nil || tag.Value == nil {
+			continue
+		}
+		if *tag.Key == tagKey {
+			return *tag.Value, true
+		}
+	}
+
+	return "", false
 }

@@ -383,7 +383,11 @@ func imageMain(awsCfg aws.Config, args []string) error {
 
 	err := f.Parse(args)
 	if err != nil {
-		return err
+		return fmt.Errorf("Failed to create AMI: %w", err)
+	}
+
+	if name == "" {
+		return fmt.Errorf("--name must be specified when creating an AMI")
 	}
 
 	selectedInstance, err := selectOrLaunch(awsCfg, false, instanceId)
@@ -391,7 +395,8 @@ func imageMain(awsCfg aws.Config, args []string) error {
 		return err
 	}
 
-	amiId, err := iaws.CreateImage(awsCfg, instanceId, name, desc)
+	amiId, err := iaws.CreateImage(awsCfg, selectedInstance.InstanceId, name,
+		desc)
 	if err != nil {
 		return fmt.Errorf("Failed to create AMI: %w", err)
 	}

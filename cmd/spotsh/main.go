@@ -16,9 +16,11 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
+	"unicode/utf8"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -1035,6 +1037,7 @@ func priceMain(awsCfg aws.Config, args []string) error {
 		return err
 	}
 
+	spotPriceLines := make([]spotPriceLine, 0)
 	for _, lookupInst := range lookupResult.InstanceTypes {
 		for _, lookupReg := range lookupInst.Regions {
 			if lookupReg.CheapestAz == nil {
@@ -1043,36 +1046,168 @@ func priceMain(awsCfg aws.Config, args []string) error {
 
 			if allAzs {
 				for _, lookupAz := range lookupReg.Azs {
-					printSpotPriceLine(lookupResult, lookupInst, lookupReg, lookupAz)
+					spotPriceLines = append(spotPriceLines,
+						newSpotPriceLine(lookupInst, lookupAz))
 				}
 			} else {
-				printSpotPriceLine(lookupResult, lookupInst, lookupReg,
-					lookupReg.CheapestAz)
+				spotPriceLines = append(spotPriceLines,
+					newSpotPriceLine(lookupInst, lookupReg.CheapestAz))
 			}
 		}
 	}
+	sortSpotPriceLines(spotPriceLines)
+	printSpotPriceLines(spotPriceLines)
 
 	return nil
 }
 
-func printSpotPriceLine(lookupResult *iaws.LookupEc2SpotPriceResult,
-	lookupInst *iaws.LookupEc2SpotPriceIType,
-	lookupReg *iaws.LookupEc2SpotPriceRegion,
-	lookupAz *iaws.LookupEc2SpotPriceAz) {
+type spotPriceLine struct {
+	spotPrice      float64
+	instanceType   string
+	azName         string
+	price          string
+	priceVCPU      string
+	placementScore string
+}
+
+type spotPriceColumnWidths struct {
+	instanceType   int
+	azName         int
+	price          spotPriceDecimalColumnWidth
+	priceVCPU      spotPriceDecimalColumnWidth
+	placementScore int
+}
+
+var spotPriceHeader = spotPriceLine{
+	instanceType:   "INSTANCE_TYPE",
+	azName:         "AZ",
+	price:          "SPOT_PRICE",
+	priceVCPU:      "VCPU_PRICE",
+	placementScore: "SCORE",
+}
+
+func newSpotPriceLine(lookupInst *iaws.LookupEc2SpotPriceIType,
+	lookupAz *iaws.LookupEc2SpotPriceAz) spotPriceLine {
 
 	placementScore := "-"
 	if lookupAz.PlacementScore != 0 {
 		placementScore = fmt.Sprintf("%v/10", lookupAz.PlacementScore)
 	}
-	if lookupReg == lookupInst.CheapestRegion &&
-		lookupInst == lookupResult.CheapestIType &&
-		lookupAz == lookupReg.CheapestAz {
-		fmt.Printf(" ** ")
+
+	return spotPriceLine{
+		spotPrice:      lookupAz.CurPrice,
+		instanceType:   string(lookupInst.InstanceType),
+		azName:         lookupAz.AzName,
+		price:          fmt.Sprintf("$%v/hr", lookupAz.CurPrice),
+		priceVCPU:      fmt.Sprintf("%.4v¢/vcpu_hr", lookupAz.CurPriceVCPU*100),
+		placementScore: placementScore,
+	}
+}
+
+func sortSpotPriceLines(lines []spotPriceLine) {
+	sort.Slice(lines, func(i, j int) bool {
+		if lines[i].spotPrice != lines[j].spotPrice {
+			return lines[i].spotPrice < lines[j].spotPrice
+		}
+		if lines[i].instanceType != lines[j].instanceType {
+			return lines[i].instanceType < lines[j].instanceType
+		}
+
+		return lines[i].azName < lines[j].azName
+	})
+}
+
+func printSpotPriceLines(lines []spotPriceLine) {
+	if len(lines) == 0 {
+		return
 	}
 
-	fmt.Printf("%v - %v - $%v/hr - %.4v¢/vcpu_hr - %v\n", lookupInst.InstanceType,
-		lookupAz.AzName, lookupAz.CurPrice, lookupAz.CurPriceVCPU*100,
-		placementScore)
+	widths := spotPriceColumnWidthsFromLines(lines)
+	printSpotPriceLine(spotPriceHeader, widths)
+	for _, line := range lines {
+		printSpotPriceLine(line, widths)
+	}
+}
+
+func spotPriceColumnWidthsFromLines(lines []spotPriceLine) spotPriceColumnWidths {
+	widths := spotPriceColumnWidths{}
+	widths.grow(spotPriceHeader)
+	for _, line := range lines {
+		widths.grow(line)
+	}
+
+	return widths
+}
+
+func (widths *spotPriceColumnWidths) grow(line spotPriceLine) {
+	widths.instanceType = maxStringWidth(widths.instanceType, line.instanceType)
+	widths.azName = maxStringWidth(widths.azName, line.azName)
+	widths.price.grow(line.price)
+	widths.priceVCPU.grow(line.priceVCPU)
+	widths.placementScore = maxStringWidth(widths.placementScore,
+		line.placementScore)
+}
+
+func maxStringWidth(curMax int, str string) int {
+	strWidth := utf8.RuneCountInString(str)
+	if strWidth > curMax {
+		return strWidth
+	}
+
+	return curMax
+}
+
+type spotPriceDecimalColumnWidth struct {
+	minWidth int
+	left     int
+	right    int
+}
+
+func (width *spotPriceDecimalColumnWidth) grow(str string) {
+	width.minWidth = maxStringWidth(width.minWidth, str)
+
+	left, right, ok := strings.Cut(str, ".")
+	if !ok {
+		return
+	}
+	width.left = maxStringWidth(width.left, left)
+	width.right = maxStringWidth(width.right, right)
+}
+
+func (width spotPriceDecimalColumnWidth) valueWidth() int {
+	if width.left == 0 && width.right == 0 {
+		return width.minWidth
+	}
+
+	decimalWidth := width.left + 1 + width.right
+	if width.minWidth > decimalWidth {
+		return width.minWidth
+	}
+
+	return decimalWidth
+}
+
+func (width spotPriceDecimalColumnWidth) format(str string) string {
+	columnWidth := width.valueWidth()
+	left, right, ok := strings.Cut(str, ".")
+	if !ok {
+		return fmt.Sprintf("%*s", columnWidth, str)
+	}
+
+	decimalWidth := width.left + 1 + width.right
+	extraLeftPadding := columnWidth - decimalWidth
+	return fmt.Sprintf("%*s.%-*s",
+		extraLeftPadding+width.left, left,
+		width.right, right)
+}
+
+func printSpotPriceLine(line spotPriceLine, widths spotPriceColumnWidths) {
+	fmt.Printf("%-*s  %-*s  %s  %s  %*s\n",
+		widths.instanceType, line.instanceType,
+		widths.azName, line.azName,
+		widths.price.format(line.price),
+		widths.priceVCPU.format(line.priceVCPU),
+		widths.placementScore, line.placementScore)
 }
 
 func main() {

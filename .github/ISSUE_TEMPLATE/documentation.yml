@@ -1,0 +1,68 @@
+name: Documentation issue
+description: Report missing, unclear, or outdated spotsh documentation
+title: "docs: "
+labels: [documentation]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve the spotsh documentation. Please do not include credentials, account IDs, private SSH keys, or other sensitive data.
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Preflight checklist
+      options:
+        - label: I searched existing issues and did not find a duplicate.
+          required: true
+  - type: dropdown
+    id: doc-location
+    attributes:
+      label: Documentation location
+      multiple: true
+      options:
+        - README.md
+        - cmd/spotsh/help.txt / `spotsh help`
+        - AGENTS.md
+        - release notes
+        - GitHub issue/PR templates
+        - code comments
+        - other
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What is unclear, missing, or outdated?
+      placeholder: Describe the documentation problem.
+    validations:
+      required: true
+  - type: textarea
+    id: suggested-change
+    attributes:
+      label: Suggested change
+      description: If you can, propose wording or describe the information that should be added.
+  - type: dropdown
+    id: command-area
+    attributes:
+      label: Related command or topic
+      multiple: true
+      options:
+        - install / upgrade
+        - config
+        - launch
+        - ssh
+        - scp
+        - terminate
+        - price
+        - info
+        - image
+        - vpn
+        - AWS credentials / region setup
+        - costs / cleanup
+        - development / tests
+        - other
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Links, screenshots, or examples of confusing output. Redact sensitive data.

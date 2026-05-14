@@ -1,0 +1,89 @@
+name: Feature request
+description: Suggest an improvement or new capability for spotsh
+title: "feat: "
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting an improvement to spotsh.
+
+        Please avoid including AWS credentials, account IDs, private SSH keys, or other sensitive information.
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Preflight checklist
+      options:
+        - label: I searched existing issues and did not find a duplicate.
+          required: true
+        - label: I checked the README/help text to confirm this is not already supported.
+          required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: What are you trying to accomplish, and why is the current behavior not enough?
+      placeholder: I want to use spotsh to ...
+    validations:
+      required: true
+  - type: textarea
+    id: proposed-solution
+    attributes:
+      label: Proposed solution
+      description: Describe the behavior, command, flag, or workflow you would like.
+      placeholder: Add a `spotsh ...` command/flag that ...
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What workarounds or other designs have you considered?
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      multiple: true
+      options:
+        - CLI UX / flags / help text
+        - launch / EC2 Fleet / Spot placement
+        - ssh / scp
+        - price / placement scores
+        - config / preferences
+        - info / resource discovery
+        - image / AMI creation
+        - vpn / WireGuard
+        - OS / AMI support
+        - IAM / roles / permissions
+        - VPC / security groups / networking
+        - install / upgrade / releases
+        - tests / CI / development workflow
+        - documentation
+        - other
+    validations:
+      required: true
+  - type: textarea
+    id: example
+    attributes:
+      label: Example usage
+      description: Show the command or workflow you would like to support.
+      render: shell
+      placeholder: |
+        spotsh launch --os ubuntu24.04 --example-flag value
+        spotsh ssh -- '...'
+  - type: textarea
+    id: aws-impact
+    attributes:
+      label: AWS resource, cost, and security impact
+      description: Note whether this would create/modify/delete AWS resources, require new IAM permissions, affect security groups, store data, or change cost exposure.
+      placeholder: This would require ec2:..., create ..., and may incur ...
+  - type: textarea
+    id: compatibility
+    attributes:
+      label: Compatibility considerations
+      description: Should this preserve existing flag names, defaults, config files, AMI behavior, or scripts?
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context
+      description: Links, examples from other tools, screenshots, or related issues.

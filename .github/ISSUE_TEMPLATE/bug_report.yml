@@ -1,0 +1,134 @@
+name: Bug report
+description: Report a reproducible problem with spotsh
+title: "bug: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug in spotsh.
+
+        **Security note:** do not include AWS credentials, secret keys, session tokens, private SSH keys, account IDs, public IPs you consider sensitive, or full command output that may contain secrets. Redact sensitive values before submitting.
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Preflight checklist
+      options:
+        - label: I searched existing issues and did not find a duplicate.
+          required: true
+        - label: I removed or redacted AWS credentials, account IDs, private IPs/public IPs if sensitive, SSH keys, and other secrets.
+          required: true
+        - label: I understand that commands such as launch, terminate, image, vpn, and some tests can create, modify, or delete real AWS resources and may incur cost.
+          required: true
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What went wrong?
+      placeholder: Briefly describe the issue.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Include the exact spotsh commands and relevant flags where possible.
+      placeholder: |
+        1. Run `spotsh --region us-east-2 launch --os ubuntu24.04 ...`
+        2. Run `spotsh ssh`
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      placeholder: What did you expect spotsh to do?
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Paste the error message or command output. Redact secrets and sensitive identifiers.
+      render: shell
+    validations:
+      required: true
+  - type: dropdown
+    id: command
+    attributes:
+      label: Affected command
+      multiple: true
+      options:
+        - default no-command workflow (`spotsh`)
+        - config
+        - info
+        - launch
+        - price
+        - ssh
+        - scp
+        - terminate
+        - upgrade
+        - version
+        - vpn start
+        - vpn stop
+        - image
+        - build/test/development
+        - other
+    validations:
+      required: true
+  - type: input
+    id: spotsh-version
+    attributes:
+      label: spotsh version
+      description: Run `spotsh version` if installed, or provide the commit SHA/tag if built from source.
+      placeholder: vX.Y.Z or commit SHA
+    validations:
+      required: true
+  - type: input
+    id: install-method
+    attributes:
+      label: Installation method
+      placeholder: GitHub release, `go install`, built from source, package manager, other
+  - type: input
+    id: os-shell
+    attributes:
+      label: Local OS and shell
+      placeholder: macOS 14 / zsh, Ubuntu 24.04 / bash, Windows 11 / WSL2, etc.
+    validations:
+      required: true
+  - type: input
+    id: aws-region
+    attributes:
+      label: AWS region(s)
+      description: Region used with `--region` or your AWS default region. Do not include account IDs.
+      placeholder: us-east-2, us-west-2, all, etc.
+    validations:
+      required: true
+  - type: input
+    id: aws-auth
+    attributes:
+      label: AWS auth method
+      description: High-level method only; do not include credentials or account IDs.
+      placeholder: AWS SSO, environment variables, shared credentials file, IAM role, etc.
+  - type: input
+    id: instance-config
+    attributes:
+      label: Instance configuration
+      description: Relevant launch flags only. Redact sensitive values.
+      placeholder: --os ubuntu24.04 --types c7i.large,c7a.large --azs us-east-2a --spotprice 0.05 --role <redacted>
+  - type: textarea
+    id: logs
+    attributes:
+      label: Additional logs or context
+      description: Include `spotsh info` output, SSH/SCP errors, AWS SDK errors, or screenshots if useful. Redact sensitive data.
+      render: shell
+  - type: checkboxes
+    id: validation
+    attributes:
+      label: Local validation
+      description: If you are reporting a development/build issue, tell us what you ran.
+      options:
+        - label: I ran `go test .` and included the result above.
+        - label: I ran `make build` and included the result above.
+        - label: Not applicable.

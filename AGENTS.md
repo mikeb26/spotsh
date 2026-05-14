@@ -4,6 +4,7 @@
 Spot Shell (spotsh) is a Go CLI that launches and connects to an AWS EC2 **spot** instance to provide a disposable “shell box”. It uses the AWS SDK for Go v2 and includes commands like `launch`, `ssh`, `scp`, `terminate`, `price`, `vpn`, and `image`.
 
 ## Repository layout
+- `.github/ISSUE_TEMPLATE/`: GitHub issue forms for bugs, feature requests, and documentation.
 - `cmd/spotsh/`: CLI entrypoint and subcommands. Embeds `help.txt`, `version.txt`, and VPN setup/teardown scripts.
 - `aws/`: AWS-facing logic (EC2, SSM, IAM, VPC/SG, pricing).
 - `types.go`: Shared types (e.g., supported OS list).

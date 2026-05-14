@@ -5,13 +5,16 @@
 package main
 
 import (
+	"context"
 	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -19,6 +22,8 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 )
+
+const BrewVersionSuffix = "b"
 
 func upgradeMain(awsCfg aws.Config, args []string) error {
 	if versionText == DevVersionText {
@@ -48,7 +53,13 @@ func upgradeMain(awsCfg aws.Config, args []string) error {
 	fmt.Printf("Upgrading spotsh from %v to %v...\n", versionText,
 		latestVer)
 
-	return upgradeViaGithub(latestVer)
+	if isBrewVersion() {
+		err = upgradeCLIViaBrew()
+	} else {
+		err = upgradeViaGithub(latestVer)
+	}
+
+	return err
 }
 
 func getLatestVersion() (string, error) {
@@ -76,6 +87,10 @@ func getLatestVersion() (string, error) {
 	latestRelease, ok := releaseDoc["tag_name"].(string)
 	if !ok {
 		return "", fmt.Errorf("Could not parse %v", LatestReleaseUrl)
+	}
+
+	if isBrewVersion() {
+		latestRelease += BrewVersionSuffix
 	}
 
 	return latestRelease, nil
@@ -165,4 +180,37 @@ func checkAndPrintUpgradeWarning() bool {
 		latestVer)
 
 	return true
+}
+
+func isBrewVersion() bool {
+	if versionText[len(versionText)-1] == BrewVersionSuffix[0] {
+		return true
+	}
+
+	return false
+}
+
+func upgradeCLIViaBrew() error {
+	ctx := context.Background()
+	err := runHostCommand(ctx, []string{"brew", "update"}, os.Stdout,
+		os.Stderr)
+	if err != nil {
+		return fmt.Errorf("Failed to update brew formulae: %w\n", err)
+	}
+	err = runHostCommand(ctx, []string{"brew", "install",
+		"mikeb26/tap/spotsh"}, os.Stdout, os.Stderr)
+	if err != nil {
+		return fmt.Errorf("Failed to upgrade spotsh: %w\n", err)
+	}
+
+	return nil
+}
+
+func runHostCommand(ctx context.Context, cmdAndArgs []string,
+	stdOut io.Writer, stdErr io.Writer) error {
+
+	cmd := exec.Command(cmdAndArgs[0], cmdAndArgs[1:]...)
+	cmd.Stderr = stdErr
+	cmd.Stdout = stdOut
+	return cmd.Run()
 }

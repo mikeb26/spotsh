@@ -93,7 +93,7 @@ continue to incur storage cost until deleted.
 
 ## Installation
 
-### Download the latest release
+### Download the latest Linux release binary
 
 ```bash
 mkdir -p "$HOME/bin"
@@ -106,6 +106,12 @@ chmod 755 "$HOME/bin/spotsh"
 
 ```bash
 go install github.com/mikeb26/spotsh/cmd/spotsh@latest
+```
+
+### Install with Brew
+
+```bash
+brew install mikeb26/tap/spotsh
 ```
 
 ### Build from source

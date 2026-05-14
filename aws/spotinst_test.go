@@ -9,7 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 
 	"github.com/mikeb26/spotsh"
@@ -32,11 +31,7 @@ func TestInstanceIdTab(t *testing.T) {
 
 func TestSsmParam(t *testing.T) {
 	ctx := context.Background()
-
-	awsCfg, err := config.LoadDefaultConfig(ctx)
-	if err != nil {
-		t.Fatalf("failed to init aws config: %v", err)
-	}
+	awsCfg := loadAWSConfigOrSkip(t)
 
 	for idx := int(spotsh.OsNone) + 1; idx < int(spotsh.OsInvalid); idx++ {
 		os := spotsh.OperatingSystem(idx)
@@ -54,10 +49,7 @@ func TestSsmParam(t *testing.T) {
 
 func TestLaunch(t *testing.T) {
 	ctx := context.Background()
-	awsCfg, err := config.LoadDefaultConfig(ctx)
-	if err != nil {
-		t.Fatalf("failed to init aws config: %v", err)
-	}
+	awsCfg := loadAWSConfigOrSkip(t)
 
 	launchResult, err := LaunchEc2Spot(ctx, awsCfg, nil)
 	if err != nil {
@@ -80,7 +72,7 @@ func TestLaunch(t *testing.T) {
 	}
 }
 
-func TestBuildFleetLaunchTemplateOverridesFiltersAzsWithoutSubnets(t *testing.T) {
+func TestBuildFleetLaunchTemplateOverridesFiltersAllowedAzs(t *testing.T) {
 	region := "ap-southeast-5"
 	iType := types.InstanceType("c8i.48xlarge")
 	spotPriceResult := newTestSpotPriceResult(region, iType,
@@ -90,8 +82,7 @@ func TestBuildFleetLaunchTemplateOverridesFiltersAzsWithoutSubnets(t *testing.T)
 		})
 
 	overrides := buildFleetLaunchTemplateOverrides(region,
-		[]types.InstanceType{iType}, spotPriceResult,
-		map[string]string{"ap-southeast-5c": "subnet-c"})
+		[]types.InstanceType{iType}, []string{"ap-southeast-5c"}, spotPriceResult)
 
 	if len(overrides) != 1 {
 		t.Fatalf("expected 1 override, got %v", len(overrides))
@@ -99,8 +90,8 @@ func TestBuildFleetLaunchTemplateOverridesFiltersAzsWithoutSubnets(t *testing.T)
 	if overrides[0].InstanceType != iType {
 		t.Fatalf("unexpected instance type: %v", overrides[0].InstanceType)
 	}
-	if overrides[0].SubnetId == nil || *overrides[0].SubnetId != "subnet-c" {
-		t.Fatalf("unexpected subnet id: %v", overrides[0].SubnetId)
+	if overrides[0].AvailabilityZone == nil || *overrides[0].AvailabilityZone != "ap-southeast-5c" {
+		t.Fatalf("unexpected availability zone: %v", overrides[0].AvailabilityZone)
 	}
 }
 
@@ -114,57 +105,27 @@ func TestBuildFleetLaunchTemplateOverridesSortsBySpotPrice(t *testing.T) {
 		})
 
 	overrides := buildFleetLaunchTemplateOverrides(region,
-		[]types.InstanceType{iType}, spotPriceResult,
-		map[string]string{
-			"ap-southeast-5a": "subnet-a",
-			"ap-southeast-5c": "subnet-c",
-		})
+		[]types.InstanceType{iType}, nil, spotPriceResult)
 
 	if len(overrides) != 2 {
 		t.Fatalf("expected 2 overrides, got %v", len(overrides))
 	}
-	if overrides[0].SubnetId == nil || *overrides[0].SubnetId != "subnet-c" {
-		t.Fatalf("expected cheapest subnet first, got %v", overrides[0].SubnetId)
+	if overrides[0].AvailabilityZone == nil || *overrides[0].AvailabilityZone != "ap-southeast-5c" {
+		t.Fatalf("expected cheapest availability zone first, got %v", overrides[0].AvailabilityZone)
 	}
 }
 
-func TestFilterSubnetIdsByAz(t *testing.T) {
-	subnetIdsByAz := map[string]string{
-		"ap-southeast-5a": "subnet-a",
-		"ap-southeast-5b": "subnet-b",
-		"ap-southeast-5c": "subnet-c",
-	}
+func TestBuildFleetLaunchTemplateOverridesReturnsEmptyWhenAllowedAzHasNoSpotPrice(t *testing.T) {
+	region := "ap-southeast-5"
+	iType := types.InstanceType("c8i.48xlarge")
+	spotPriceResult := newTestSpotPriceResult(region, iType,
+		map[string]float64{"ap-southeast-5a": 0.90})
 
-	filtered, err := filterSubnetIdsByAz(subnetIdsByAz,
-		[]string{"ap-southeast-5c", "ap-southeast-5a"})
-	if err != nil {
-		t.Fatalf("filterSubnetIdsByAz failed: %v", err)
-	}
-	if len(filtered) != 2 {
-		t.Fatalf("expected 2 AZs, got %v", len(filtered))
-	}
-	if filtered["ap-southeast-5c"] != "subnet-c" {
-		t.Fatalf("unexpected subnet for ap-southeast-5c: %v",
-			filtered["ap-southeast-5c"])
-	}
-	if filtered["ap-southeast-5a"] != "subnet-a" {
-		t.Fatalf("unexpected subnet for ap-southeast-5a: %v",
-			filtered["ap-southeast-5a"])
-	}
-	if _, ok := filtered["ap-southeast-5b"]; ok {
-		t.Fatalf("unexpected unconstrained AZ in filtered results")
-	}
-}
+	overrides := buildFleetLaunchTemplateOverrides(region,
+		[]types.InstanceType{iType}, []string{"ap-southeast-5c"}, spotPriceResult)
 
-func TestFilterSubnetIdsByAzErrorsWhenAzHasNoSubnet(t *testing.T) {
-	_, err := filterSubnetIdsByAz(
-		map[string]string{"ap-southeast-5a": "subnet-a"},
-		[]string{"ap-southeast-5a", "ap-southeast-5c"})
-	if err == nil {
-		t.Fatalf("expected missing subnet error")
-	}
-	if !strings.Contains(err.Error(), "ap-southeast-5c") {
-		t.Fatalf("expected missing AZ in error, got %v", err)
+	if len(overrides) != 0 {
+		t.Fatalf("expected no overrides, got %v", len(overrides))
 	}
 }
 

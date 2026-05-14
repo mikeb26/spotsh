@@ -5,18 +5,12 @@
 package aws
 
 import (
-	"context"
 	"testing"
-
-	"github.com/aws/aws-sdk-go-v2/config"
 )
 
 func TestLookupImages(t *testing.T) {
-	ctx := context.Background()
-	awsCfg, err := config.LoadDefaultConfig(ctx)
-	if err != nil {
-		t.Fatalf("failed to init aws config: %v", err)
-	}
+	awsCfg := loadAWSConfigOrSkip(t)
+
 	imageResults, err := LookupImages(awsCfg)
 	if err != nil {
 		t.Fatalf("Failed to lookup images: %v", err)

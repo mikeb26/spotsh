@@ -5,13 +5,11 @@
 package aws
 
 import (
-	"context"
 	"net"
 	"strings"
 	"testing"
 
 	awssdk "github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 )
@@ -115,11 +113,7 @@ func TestSshPermissionCoversIP(t *testing.T) {
 }
 
 func TestGetDefaultSecurityGroupId(t *testing.T) {
-	ctx := context.Background()
-	awsCfg, err := config.LoadDefaultConfig(ctx)
-	if err != nil {
-		t.Fatalf("failed to init aws config: %v", err)
-	}
+	awsCfg := loadAWSConfigOrSkip(t)
 
 	ec2Client := ec2.NewFromConfig(awsCfg)
 	sgId, err := getDefaultSecurityGroupId(awsCfg, ec2Client)
@@ -133,11 +127,8 @@ func TestGetDefaultSecurityGroupId(t *testing.T) {
 }
 
 func TestLookupVpcSecurityGroups(t *testing.T) {
-	ctx := context.Background()
-	awsCfg, err := config.LoadDefaultConfig(ctx)
-	if err != nil {
-		t.Fatalf("failed to init aws config: %v", err)
-	}
+	awsCfg := loadAWSConfigOrSkip(t)
+
 	result, err := LookupVpcSecurityGroups(awsCfg)
 	if err != nil {
 		t.Fatalf("failed to lookup security groups: %v", err)

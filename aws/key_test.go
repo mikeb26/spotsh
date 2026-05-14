@@ -9,16 +9,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 )
 
 func TestLookupKeys(t *testing.T) {
 	ctx := context.Background()
-	awsCfg, err := config.LoadDefaultConfig(ctx)
-	if err != nil {
-		t.Fatalf("failed to init aws config: %v", err)
-	}
+	awsCfg := loadAWSConfigOrSkip(t)
+
 	haveDefaultKey, err := haveDefaultKeyPair(ctx, awsCfg)
 	if err != nil {
 		t.Fatalf("failed to test for default keypair: %v", err)

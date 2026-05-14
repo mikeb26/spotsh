@@ -1,6 +1,7 @@
 # Spot Shell (`spotsh`)
 
 [![Release](https://img.shields.io/github/v/release/mikeb26/spotsh)](https://github.com/mikeb26/spotsh/releases)
+[![CircleCI](https://img.shields.io/circleci/build/github/mikeb26/spotsh/main?label=CircleCI)](https://app.circleci.com/pipelines/github/mikeb26/spotsh)
 [![Go Reference](https://pkg.go.dev/badge/github.com/mikeb26/spotsh.svg)](https://pkg.go.dev/github.com/mikeb26/spotsh)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
 

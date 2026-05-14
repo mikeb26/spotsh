@@ -59,6 +59,8 @@ PRICEFLAGS:                                     | DEFAULT
                                                   c6i.large,c6a.large
   --all-azs                                     | false; display all
                                                   availability zones
+  --sort-vcpu                                   | false; sort by per-vCPU
+                                                  spot price
 
 INFOFLAGS:                                      | DEFAULT
   --instances                                   | true

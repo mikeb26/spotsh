@@ -1018,7 +1018,7 @@ func priceMain(awsCfg aws.Config, args []string) error {
 		return err
 	}
 
-	var allAzs bool
+	var allAzs, sortVCPU bool
 	f := flag.NewFlagSet("spotsh price", flag.ContinueOnError)
 	iTypeList := iTypeSlice2String(iaws.DefaultInstanceTypes)
 	if len(launchArgs.InstanceTypes) > 0 {
@@ -1026,6 +1026,7 @@ func priceMain(awsCfg aws.Config, args []string) error {
 	}
 	f.StringVar(&iTypeList, "types", iTypeList, "Instance types")
 	f.BoolVar(&allAzs, "all-azs", false, "Display spot prices for all availability zones")
+	f.BoolVar(&sortVCPU, "sort-vcpu", false, "Sort by per-vCPU spot price")
 	err = f.Parse(args)
 	if err != nil {
 		return err
@@ -1055,7 +1056,7 @@ func priceMain(awsCfg aws.Config, args []string) error {
 			}
 		}
 	}
-	sortSpotPriceLines(spotPriceLines)
+	sortSpotPriceLines(spotPriceLines, sortVCPU)
 	printSpotPriceLines(spotPriceLines)
 
 	return nil
@@ -1063,6 +1064,7 @@ func priceMain(awsCfg aws.Config, args []string) error {
 
 type spotPriceLine struct {
 	spotPrice      float64
+	spotPriceVCPU  float64
 	instanceType   string
 	azName         string
 	price          string
@@ -1096,6 +1098,7 @@ func newSpotPriceLine(lookupInst *iaws.LookupEc2SpotPriceIType,
 
 	return spotPriceLine{
 		spotPrice:      lookupAz.CurPrice,
+		spotPriceVCPU:  lookupAz.CurPriceVCPU,
 		instanceType:   string(lookupInst.InstanceType),
 		azName:         lookupAz.AzName,
 		price:          fmt.Sprintf("$%v/hr", lookupAz.CurPrice),
@@ -1104,8 +1107,11 @@ func newSpotPriceLine(lookupInst *iaws.LookupEc2SpotPriceIType,
 	}
 }
 
-func sortSpotPriceLines(lines []spotPriceLine) {
+func sortSpotPriceLines(lines []spotPriceLine, sortVCPU bool) {
 	sort.Slice(lines, func(i, j int) bool {
+		if sortVCPU && lines[i].spotPriceVCPU != lines[j].spotPriceVCPU {
+			return lines[i].spotPriceVCPU < lines[j].spotPriceVCPU
+		}
 		if lines[i].spotPrice != lines[j].spotPrice {
 			return lines[i].spotPrice < lines[j].spotPrice
 		}

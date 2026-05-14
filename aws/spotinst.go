@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -627,7 +628,7 @@ func runInstance(ctx context.Context, awsCfg aws.Config,
 			SpotTargetCapacity:        aws.Int32(1),
 		},
 		SpotOptions: &types.SpotOptionsRequest{
-			AllocationStrategy:     types.SpotAllocationStrategyPriceCapacityOptimized,
+			AllocationStrategy:     types.SpotAllocationStrategyLowestPrice,
 			MaxTotalPrice:          aws.String(spotPrice),
 			MinTargetCapacity:      aws.Int32(1),
 			SingleAvailabilityZone: aws.Bool(true),
@@ -706,22 +707,8 @@ func getFleetLaunchTemplateOverrides(ctx context.Context, awsCfg aws.Config,
 			err)
 	}
 
-	subnetIdsByAz, err := getSubnetIdsByAzForSecurityGroup(ctx, ec2Client, sgId)
-	if err != nil {
-		return nil, fmt.Errorf("failed to look up subnets for security group %v: %w",
-			sgId, err)
-	}
-	if len(launchArgs.AzNames) > 0 {
-		subnetIdsByAz, err = filterSubnetIdsByAz(subnetIdsByAz,
-			launchArgs.AzNames)
-		if err != nil {
-			return nil, fmt.Errorf("failed to apply availability zone constraints: %w",
-				err)
-		}
-	}
-
 	overrides := buildFleetLaunchTemplateOverrides(awsCfg.Region,
-		launchArgs.InstanceTypes, spotPriceResult, subnetIdsByAz)
+		launchArgs.InstanceTypes, launchArgs.AzNames, spotPriceResult)
 	if len(overrides) == 0 {
 		azConstraint := ""
 		if len(launchArgs.AzNames) > 0 {
@@ -735,44 +722,9 @@ func getFleetLaunchTemplateOverrides(ctx context.Context, awsCfg aws.Config,
 	return overrides, nil
 }
 
-func filterSubnetIdsByAz(subnetIdsByAz map[string]string,
-	azNames []string) (map[string]string, error) {
-
-	filtered := make(map[string]string, len(azNames))
-	missingAzNames := make([]string, 0)
-	seenAzNames := make(map[string]struct{}, len(azNames))
-	for _, azName := range azNames {
-		if azName == "" {
-			continue
-		}
-		if _, ok := seenAzNames[azName]; ok {
-			continue
-		}
-		seenAzNames[azName] = struct{}{}
-
-		subnetId := subnetIdsByAz[azName]
-		if subnetId == "" {
-			missingAzNames = append(missingAzNames, azName)
-			continue
-		}
-
-		filtered[azName] = subnetId
-	}
-
-	if len(missingAzNames) > 0 {
-		return nil, fmt.Errorf("could not find available subnet for requested availability zone(s): %v",
-			strings.Join(missingAzNames, ","))
-	}
-	if len(filtered) == 0 {
-		return nil, fmt.Errorf("no availability zones were specified")
-	}
-
-	return filtered, nil
-}
-
 func buildFleetLaunchTemplateOverrides(region string,
-	iTypes []types.InstanceType, spotPriceResult *LookupEc2SpotPriceResult,
-	subnetIdsByAz map[string]string) []types.FleetLaunchTemplateOverridesRequest {
+	iTypes []types.InstanceType, allowedAzs []string,
+	spotPriceResult *LookupEc2SpotPriceResult) []types.FleetLaunchTemplateOverridesRequest {
 
 	instanceTypeOrder := make(map[types.InstanceType]int)
 	for idx, iType := range iTypes {
@@ -796,15 +748,17 @@ func buildFleetLaunchTemplateOverrides(region string,
 		}
 
 		for azName, lookupAz := range lookupReg.Azs {
-			subnetId := subnetIdsByAz[azName]
-			if lookupAz == nil || subnetId == "" {
+			if lookupAz == nil {
+				continue
+			}
+			if len(allowedAzs) > 0 && !slices.Contains(allowedAzs, azName) {
 				continue
 			}
 
 			candidates = append(candidates, fleetLaunchCandidate{
 				override: types.FleetLaunchTemplateOverridesRequest{
-					InstanceType: iType,
-					SubnetId:     aws.String(subnetId),
+					InstanceType:     iType,
+					AvailabilityZone: aws.String(azName),
 				},
 				price:             lookupAz.CurPrice,
 				azName:            azName,

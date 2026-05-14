@@ -42,7 +42,7 @@ spotsh terminate
 Check current Spot prices and placement scores:
 
 ```bash
-spotsh price --region all --sort-vcpu
+spotsh --region all price --sort-vcpu
 ```
 
 Launch Ubuntu instead of the default Amazon Linux 2023 image:
@@ -207,8 +207,8 @@ spotsh info --instances --keys --vpcs --images
 ### Find cheap regions and capacity pools
 
 ```bash
-spotsh price --region all --sort-vcpu
-spotsh price --types c7i.large,c7a.large,c8i.large,c8a.large --all-azs
+spotsh --region all price --sort-vcpu
+spotsh --region all price --types c7i.large,c7a.large,c8i.large,c8a.large --all-azs
 ```
 
 ### Copy files

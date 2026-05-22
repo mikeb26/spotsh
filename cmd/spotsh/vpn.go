@@ -137,7 +137,7 @@ func runRemote(selectedResult *iaws.LaunchEc2SpotResult,
 	output, err := cmd.Output()
 	if err != nil {
 		if exitError, ok := err.(*exec.ExitError); ok {
-			err = fmt.Errorf(string(exitError.Stderr))
+			err = fmt.Errorf("%s", exitError.Stderr)
 		}
 		return "", err
 	}
@@ -153,7 +153,7 @@ func runLocal(cmdAndArgs []string, stdinReader io.Reader) (string, error) {
 	output, err := cmd.Output()
 	if err != nil {
 		if exitError, ok := err.(*exec.ExitError); ok {
-			err = fmt.Errorf(string(exitError.Stderr))
+			err = fmt.Errorf("%s", exitError.Stderr)
 		}
 		return "", err
 	}

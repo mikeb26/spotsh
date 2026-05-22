@@ -16,6 +16,8 @@ const (
 	Ubuntu24_04
 	Ubuntu26_04
 	Debian13
+	CentOS9
+	CentOS10
 
 	OsInvalid // must be last
 )
@@ -30,6 +32,8 @@ var osTab = []string{
 	Ubuntu24_04:        "ubuntu24.04",
 	Ubuntu26_04:        "ubuntu26.04",
 	Debian13:           "debian13",
+	CentOS9:            "centos9",
+	CentOS10:           "centos10",
 
 	OsInvalid: "invalid",
 }
@@ -38,7 +42,7 @@ var osMap = make(map[string]OperatingSystem)
 
 func (os OperatingSystem) String() string {
 	idx := int(os)
-	if idx < 0 || idx > len(osTab) {
+	if idx < 0 || idx >= len(osTab) {
 		idx = int(OsInvalid)
 	}
 
@@ -64,6 +68,8 @@ func (os OperatingSystem) Values() []OperatingSystem {
 		Ubuntu24_04,
 		Ubuntu26_04,
 		Debian13,
+		CentOS9,
+		CentOS10,
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 
 	"github.com/mikeb26/spotsh"
@@ -44,6 +45,28 @@ func TestSsmParam(t *testing.T) {
 			t.Fatalf("get latest ami for %v returned unexpected id: %v",
 				os, amiId)
 		}
+	}
+}
+
+func TestGetLatestAmiIdFromImages(t *testing.T) {
+	images := []types.Image{
+		{
+			ImageId:      aws.String("ami-older"),
+			CreationDate: aws.String("2026-01-01T00:00:00.000Z"),
+		},
+		{
+			ImageId:      aws.String("ami-newer"),
+			CreationDate: aws.String("2026-02-01T00:00:00.000Z"),
+		},
+		{
+			ImageId:      aws.String("ami-missing-date"),
+			CreationDate: nil,
+		},
+	}
+
+	amiId := getLatestAmiIdFromImages(images)
+	if amiId != "ami-newer" {
+		t.Fatalf("expected latest ami ami-newer, got %v", amiId)
 	}
 }
 

@@ -175,6 +175,8 @@ Supported OS values:
 | `ubuntu26.04` | Ubuntu 26.04 LTS |
 | `debian12` | Debian GNU/Linux 12 |
 | `debian13` | Debian GNU/Linux 13 |
+| `centos9` | CentOS Stream 9 |
+| `centos10` | CentOS Stream 10 |
 
 ### Run setup on first boot
 

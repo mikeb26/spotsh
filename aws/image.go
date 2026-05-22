@@ -21,6 +21,8 @@ type imageIdEntry struct {
 	os       spotsh.OperatingSystem
 	desc     string
 	ssmParam string
+	ec2Owner string
+	filters  []types.Filter
 	user     string
 }
 
@@ -74,6 +76,46 @@ var imageIdTab = []imageIdEntry{
 		ssmParam: "/aws/service/canonical/ubuntu/server/26.04/stable/current/amd64/hvm/ebs-gp3/ami-id",
 		user:     "ubuntu",
 	},
+	spotsh.CentOS9: {
+		os:       spotsh.CentOS9,
+		desc:     "CentOS Stream 9",
+		ec2Owner: "125523088429",
+		filters: []types.Filter{
+			{
+				Name:   aws.String("name"),
+				Values: []string{"*CentOS Stream 9*"},
+			},
+			{
+				Name:   aws.String("architecture"),
+				Values: []string{"x86_64"},
+			},
+			{
+				Name:   aws.String("state"),
+				Values: []string{"available"},
+			},
+		},
+		user: "ec2-user",
+	},
+	spotsh.CentOS10: {
+		os:       spotsh.CentOS10,
+		desc:     "CentOS Stream 10",
+		ec2Owner: "125523088429",
+		filters: []types.Filter{
+			{
+				Name:   aws.String("name"),
+				Values: []string{"*CentOS Stream 10*"},
+			},
+			{
+				Name:   aws.String("architecture"),
+				Values: []string{"x86_64"},
+			},
+			{
+				Name:   aws.String("state"),
+				Values: []string{"available"},
+			},
+		},
+		user: "ec2-user",
+	},
 }
 
 func GetImageDesc(os spotsh.OperatingSystem) string {
@@ -96,6 +138,18 @@ func getLatestAmiId(ctx context.Context, awsCfg aws.Config,
 		return "", fmt.Errorf("No such os index %v", idx)
 	}
 	idEntry := &imageIdTab[idx]
+	if idEntry.ssmParam != "" {
+		return getLatestAmiIdFromSsm(ctx, awsCfg, idEntry)
+	}
+	if idEntry.ec2Owner != "" {
+		return getLatestAmiIdFromDescribeImages(ctx, awsCfg, idEntry)
+	}
+
+	return "", fmt.Errorf("No latest ami lookup configured for %v", os)
+}
+
+func getLatestAmiIdFromSsm(ctx context.Context, awsCfg aws.Config,
+	idEntry *imageIdEntry) (string, error) {
 
 	ssmClient := ssm.NewFromConfig(awsCfg)
 	getParamInput := &ssm.GetParameterInput{
@@ -107,6 +161,48 @@ func getLatestAmiId(ctx context.Context, awsCfg aws.Config,
 	}
 
 	return *getParamOutput.Parameter.Value, nil
+}
+
+func getLatestAmiIdFromDescribeImages(ctx context.Context, awsCfg aws.Config,
+	idEntry *imageIdEntry) (string, error) {
+
+	ec2Client := ec2.NewFromConfig(awsCfg)
+	dryRun := false
+	descInput := &ec2.DescribeImagesInput{
+		DryRun:  &dryRun,
+		Filters: idEntry.filters,
+		Owners:  []string{idEntry.ec2Owner},
+	}
+	descOutput, err := ec2Client.DescribeImages(ctx, descInput)
+	if err != nil {
+		return "", err
+	}
+
+	amiId := getLatestAmiIdFromImages(descOutput.Images)
+	if amiId == "" {
+		return "", fmt.Errorf("Could not find latest ami for %v", idEntry.desc)
+	}
+
+	return amiId, nil
+}
+
+func getLatestAmiIdFromImages(images []types.Image) string {
+	var latestAmiId string
+	var latestCreationDate string
+
+	for _, image := range images {
+		amiId := aws.ToString(image.ImageId)
+		creationDate := aws.ToString(image.CreationDate)
+		if amiId == "" || creationDate == "" {
+			continue
+		}
+		if latestAmiId == "" || creationDate > latestCreationDate {
+			latestAmiId = amiId
+			latestCreationDate = creationDate
+		}
+	}
+
+	return latestAmiId
 }
 
 func getRootVolName(ctx context.Context, ec2Client *ec2.Client,

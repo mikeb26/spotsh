@@ -89,6 +89,8 @@ OPERATING_SYSTEM:
     ubuntu26.04 - Ubuntu 26.04 LTS
     debian12    - Debian GNU/Linux 12
     debian13    - Debian GNU/Linux 13
+    centos9     - CentOS Stream 9
+    centos10    - CentOS Stream 10
 
 SCP_ARGS:
   With 1 exception SCP_ARGS are passed directly to scp. See SCP(1) for

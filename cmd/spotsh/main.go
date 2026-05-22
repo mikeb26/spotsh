@@ -61,7 +61,7 @@ var subCommandTab = map[string]func(awsCfg aws.Config, args []string) error{
 var helpText string
 
 func helpMain(awsCfg aws.Config, args []string) error {
-	fmt.Printf(helpText)
+	fmt.Print(helpText)
 
 	return nil
 }
@@ -252,7 +252,7 @@ func launchMain(awsCfg aws.Config, args []string) error {
 				for _, tmpOs := range launchArgs.Os.Values() {
 					sb.WriteString(fmt.Sprintf("\t%v\n", tmpOs.String()))
 				}
-				return fmt.Errorf(sb.String())
+				return errors.New(sb.String())
 			}
 		}
 		if user != "" {

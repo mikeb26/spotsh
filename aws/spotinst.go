@@ -628,7 +628,7 @@ func runInstance(ctx context.Context, awsCfg aws.Config,
 			SpotTargetCapacity:        aws.Int32(1),
 		},
 		SpotOptions: &types.SpotOptionsRequest{
-			AllocationStrategy:     types.SpotAllocationStrategyLowestPrice,
+			AllocationStrategy:     types.SpotAllocationStrategyCapacityOptimized,
 			MaxTotalPrice:          aws.String(spotPrice),
 			MinTargetCapacity:      aws.Int32(1),
 			SingleAvailabilityZone: aws.Bool(true),

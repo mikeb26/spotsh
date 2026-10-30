@@ -238,7 +238,10 @@ spotsh image --name my-spotsh-devbox --desc 'Configured spotsh development box'
 ### Start and stop VPN mode
 
 VPN mode uses WireGuard and is currently supported for Amazon Linux 2023 spot
-shell instances.
+shell instances. It is a full IPv4 tunnel: `vpn start` adds a UDP/26026
+security-group rule limited to the current public IP before changing local
+routing. The AWS identity therefore needs permission to describe and authorize
+security-group ingress rules, in addition to the normal VPN prerequisites.
 
 ```bash
 spotsh launch --os amzn2023

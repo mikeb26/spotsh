@@ -54,17 +54,30 @@ func parseExternalIP(externalIP string) (net.IP, error) {
 
 func addSshIngressRule(ctx context.Context, host string, externalIP string,
 	ec2Client *ec2.Client, sgId string) error {
+	return addPortIngressRule(ctx, host, externalIP, "tcp", 22, "ssh", ec2Client,
+		sgId)
+}
+
+func addVpnIngressRule(ctx context.Context, host string, externalIP string,
+	ec2Client *ec2.Client, sgId string) error {
+	return addPortIngressRule(ctx, host, externalIP, "udp", 26026, "WireGuard", ec2Client,
+		sgId)
+}
+
+func addPortIngressRule(ctx context.Context, host string, externalIP string,
+	protocol string, port int32, service string, ec2Client *ec2.Client,
+	sgId string) error {
 
 	ip, err := parseExternalIP(externalIP)
 	if err != nil {
 		return err
 	}
-	description := aws.String(fmt.Sprintf("allow ssh from %v (added by spotsh)",
-		host))
+	description := aws.String(fmt.Sprintf("allow %s from %v (added by spotsh)",
+		service, host))
 	permission := types.IpPermission{
-		IpProtocol: aws.String("tcp"),
-		FromPort:   aws.Int32(22),
-		ToPort:     aws.Int32(22),
+		IpProtocol: aws.String(protocol),
+		FromPort:   aws.Int32(port),
+		ToPort:     aws.Int32(port),
 	}
 	if ipv4 := ip.To4(); ipv4 != nil {
 		permission.IpRanges = []types.IpRange{
@@ -93,6 +106,16 @@ func addSshIngressRule(ctx context.Context, host string, externalIP string,
 
 func hasSshIngressRule(ctx context.Context, externalIP string,
 	ec2Client *ec2.Client, sgId string) (bool, error) {
+	return hasPortIngressRule(ctx, externalIP, "tcp", 22, ec2Client, sgId)
+}
+
+func hasVpnIngressRule(ctx context.Context, externalIP string,
+	ec2Client *ec2.Client, sgId string) (bool, error) {
+	return hasPortIngressRule(ctx, externalIP, "udp", 26026, ec2Client, sgId)
+}
+
+func hasPortIngressRule(ctx context.Context, externalIP string, protocol string,
+	port int32, ec2Client *ec2.Client, sgId string) (bool, error) {
 
 	ip, err := parseExternalIP(externalIP)
 	if err != nil {
@@ -110,7 +133,7 @@ func hasSshIngressRule(ctx context.Context, externalIP string,
 
 	for _, sg := range resp.SecurityGroups {
 		for _, perm := range sg.IpPermissions {
-			if sshPermissionCoversIP(perm, ip) {
+			if portPermissionCoversIP(perm, ip, protocol, port) {
 				return true, nil
 			}
 		}
@@ -120,7 +143,16 @@ func hasSshIngressRule(ctx context.Context, externalIP string,
 }
 
 func sshPermissionCoversIP(perm types.IpPermission, ip net.IP) bool {
-	if !ipPermissionAllowsSsh(perm) {
+	return portPermissionCoversIP(perm, ip, "tcp", 22)
+}
+
+func vpnPermissionCoversIP(perm types.IpPermission, ip net.IP) bool {
+	return portPermissionCoversIP(perm, ip, "udp", 26026)
+}
+
+func portPermissionCoversIP(perm types.IpPermission, ip net.IP, protocol string,
+	port int32) bool {
+	if !ipPermissionAllowsPort(perm, protocol, port) {
 		return false
 	}
 
@@ -139,19 +171,22 @@ func sshPermissionCoversIP(perm types.IpPermission, ip net.IP) bool {
 	return false
 }
 
-func ipPermissionAllowsSsh(perm types.IpPermission) bool {
-	protocol := strings.ToLower(aws.ToString(perm.IpProtocol))
-	if protocol == "-1" {
+func ipPermissionAllowsPort(perm types.IpPermission, wantedProtocol string,
+	port int32) bool {
+	actualProtocol := strings.ToLower(aws.ToString(perm.IpProtocol))
+	if actualProtocol == "-1" {
 		return true
 	}
-	if protocol != "tcp" && protocol != "6" {
+	if actualProtocol != wantedProtocol &&
+		!(wantedProtocol == "tcp" && actualProtocol == "6") &&
+		!(wantedProtocol == "udp" && actualProtocol == "17") {
 		return false
 	}
 	if perm.FromPort == nil || perm.ToPort == nil {
 		return false
 	}
 
-	return aws.ToInt32(perm.FromPort) <= 22 && aws.ToInt32(perm.ToPort) >= 22
+	return aws.ToInt32(perm.FromPort) <= port && aws.ToInt32(perm.ToPort) >= port
 }
 
 func cidrContainsIP(cidr string, ip net.IP) bool {
@@ -185,6 +220,33 @@ func CheckOrAddSshIngressRule(awsCfg aws.Config, sgId string) error {
 	}
 
 	return addSshIngressRule(ctx, host, externalIP, ec2Client, sgId)
+}
+
+// CheckOrAddVpnIngressRule allows WireGuard traffic from this host only.
+// VPN clients route all IPv4 traffic through the spot instance, so without
+// this rule the new default route would send traffic into a blocked tunnel.
+func CheckOrAddVpnIngressRule(awsCfg aws.Config, sgId string) error {
+	ec2Client := ec2.NewFromConfig(awsCfg)
+	host, err := os.Hostname()
+	if err != nil {
+		host = "localhost"
+	}
+
+	ctx := context.Background()
+	externalIP, err := getExternalIP()
+	if err != nil {
+		return err
+	}
+
+	hasRule, err := hasVpnIngressRule(ctx, externalIP, ec2Client, sgId)
+	if err != nil {
+		return err
+	}
+	if hasRule {
+		return nil
+	}
+
+	return addVpnIngressRule(ctx, host, externalIP, ec2Client, sgId)
 }
 
 func getDefaultSecurityGroupId(awsCfg aws.Config,

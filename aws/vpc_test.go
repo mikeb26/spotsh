@@ -112,6 +112,62 @@ func TestSshPermissionCoversIP(t *testing.T) {
 	}
 }
 
+func TestVpnPermissionCoversIP(t *testing.T) {
+	ip := net.ParseIP("203.0.113.42")
+	if ip == nil {
+		t.Fatal("failed to parse test IP")
+	}
+
+	tests := []struct {
+		name string
+		perm ec2types.IpPermission
+		want bool
+	}{
+		{
+			name: "ipv4 covered by WireGuard UDP cidr",
+			perm: ec2types.IpPermission{
+				IpProtocol: awssdk.String("udp"),
+				FromPort:   awssdk.Int32(26026),
+				ToPort:     awssdk.Int32(26026),
+				IpRanges: []ec2types.IpRange{
+					{CidrIp: awssdk.String("203.0.113.0/24")},
+				},
+			},
+			want: true,
+		},
+		{
+			name: "tcp ssh rule does not allow WireGuard UDP",
+			perm: ec2types.IpPermission{
+				IpProtocol: awssdk.String("tcp"),
+				FromPort:   awssdk.Int32(22),
+				ToPort:     awssdk.Int32(22),
+				IpRanges: []ec2types.IpRange{
+					{CidrIp: awssdk.String("203.0.113.42/32")},
+				},
+			},
+			want: false,
+		},
+		{
+			name: "all protocols and port range allow WireGuard",
+			perm: ec2types.IpPermission{
+				IpProtocol: awssdk.String("-1"),
+				IpRanges: []ec2types.IpRange{
+					{CidrIp: awssdk.String("203.0.113.42/32")},
+				},
+			},
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := vpnPermissionCoversIP(tt.perm, ip); got != tt.want {
+				t.Fatalf("vpnPermissionCoversIP() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestGetDefaultSecurityGroupId(t *testing.T) {
 	awsCfg := loadAWSConfigOrSkip(t)
 

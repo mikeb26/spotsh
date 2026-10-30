@@ -57,6 +57,13 @@ func vpnMain(awsCfg aws.Config, args []string) error {
 	}
 
 	if strings.ToLower(args[0]) == "start" {
+		fmt.Fprintf(os.Stderr, "Checking or adding WireGuard UDP ingress rule for security group id %v...\n",
+			selectedResult.SgId)
+		err = iaws.CheckOrAddVpnIngressRule(awsCfg, selectedResult.SgId)
+		if err != nil {
+			return fmt.Errorf("Failed to add WireGuard ingress rule: %w", err)
+		}
+
 		err = startVpnServer(selectedResult)
 		if err != nil {
 			return err
@@ -251,18 +258,18 @@ func startVpnClient(awsCfg aws.Config,
 
 	fmt.Fprintf(os.Stderr, "Starting vpn client...\n")
 
-	vpnTagKey := iaws.DefaultTagPrefix + "." + iaws.VpnTagSuffix
-	err = iaws.UpdateTag(awsCfg, selectedResult.InstanceId,
-		vpnTagKey, "true")
-	if err != nil {
-		return fmt.Errorf("Failed to update instance's vpn tag: %w", err)
-	}
-
 	cmdAndArgs := []string{vpnSetupScriptPath, serverPubKey,
 		selectedResult.PublicIp, clientPrivKeyFilePath}
 	_, err = runLocal(cmdAndArgs, nil)
 	if err != nil {
 		return fmt.Errorf("Failed to start vpn client: %w", err)
+	}
+
+	vpnTagKey := iaws.DefaultTagPrefix + "." + iaws.VpnTagSuffix
+	err = iaws.UpdateTag(awsCfg, selectedResult.InstanceId,
+		vpnTagKey, "true")
+	if err != nil {
+		return fmt.Errorf("VPN started but failed to update instance's vpn tag: %w", err)
 	}
 
 	return nil

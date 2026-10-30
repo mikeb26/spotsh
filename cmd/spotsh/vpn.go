@@ -5,7 +5,9 @@
 package main
 
 import (
+	"context"
 	_ "embed"
+	"flag"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -13,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/mikeb26/spotsh"
@@ -27,6 +30,7 @@ const (
 	SetupVpnServerScript    = "setupVpnServer.sh"
 	SetupVpnClientScript    = "setupVpnClient.sh"
 	TeardownVpnClientScript = "teardownVpnClient.sh"
+	vpnTagTimeout           = 30 * time.Second
 )
 
 //go:embed setupVpnServer.sh
@@ -39,10 +43,22 @@ var setupVpnClientText string
 var teardownVpnClientText string
 
 func vpnMain(awsCfg aws.Config, args []string) error {
-	fmt.Fprintf(os.Stderr, "Selecting or launching spot instance...\n")
-	selectedResult, err := selectOrLaunchWithArgs(awsCfg, "spotsh vpn", false,
-		&args)
+	instanceID, action, verbose, err := parseVpnArgs(args, os.Stderr)
 	if err != nil {
+		return err
+	}
+	// Restore local connectivity before any instance lookup or other AWS call.
+	if action == "stop" {
+		if err := teardownVpnClient(verbose); err != nil {
+			return err
+		}
+	}
+	fmt.Fprintf(os.Stderr, "Selecting or launching spot instance...\n")
+	selectedResult, err := selectOrLaunch(awsCfg, false, instanceID)
+	if err != nil {
+		if action == "stop" {
+			return fmt.Errorf("VPN client stopped locally, but instance lookup failed (tag not updated): %w", err)
+		}
 		return err
 	}
 
@@ -51,12 +67,7 @@ func vpnMain(awsCfg aws.Config, args []string) error {
 		return fmt.Errorf("spotsh vpn is only currently supported on Amazon Linux 2023 spot instances")
 	}
 
-	if len(args) != 1 || (strings.ToLower(args[0]) != "start" &&
-		strings.ToLower(args[0]) != "stop") {
-		return fmt.Errorf("spotsh vpn <start|stop> must be specified")
-	}
-
-	if strings.ToLower(args[0]) == "start" {
+	if action == "start" {
 		fmt.Fprintf(os.Stderr, "Checking or adding WireGuard UDP ingress rule for security group id %v...\n",
 			selectedResult.SgId)
 		err = iaws.CheckOrAddVpnIngressRule(awsCfg, selectedResult.SgId)
@@ -64,24 +75,47 @@ func vpnMain(awsCfg aws.Config, args []string) error {
 			return fmt.Errorf("Failed to add WireGuard ingress rule: %w", err)
 		}
 
-		err = startVpnServer(selectedResult)
+		err = startVpnServer(selectedResult, verbose)
 		if err != nil {
 			return err
 		}
 
-		err = startVpnClient(awsCfg, selectedResult)
+		err = startVpnClient(awsCfg, selectedResult, verbose)
 		if err != nil {
 			return err
 		}
 	} else {
-		// stop
-		err = stopVpnClient(awsCfg, selectedResult)
+		err = updateVpnTag(awsCfg, selectedResult, "false", verbose)
 		if err != nil {
-			return err
+			return fmt.Errorf("VPN client stopped, but failed to update instance's vpn tag: %w", err)
 		}
 	}
 
 	return nil
+}
+
+// parseVpnArgs accepts flags on either side of the start/stop action.
+func parseVpnArgs(args []string, output io.Writer) (instanceID, action string, verbose bool, err error) {
+	f := flag.NewFlagSet("spotsh vpn", flag.ContinueOnError)
+	f.SetOutput(output)
+	f.StringVar(&instanceID, "instance-id", "", "EC2 instance id")
+	f.BoolVar(&verbose, "v", false, "Show verbose VPN diagnostics")
+	if err = f.Parse(args); err != nil {
+		return
+	}
+	args = f.Args()
+	if len(args) == 0 || (!strings.EqualFold(args[0], "start") && !strings.EqualFold(args[0], "stop")) {
+		err = fmt.Errorf("spotsh vpn <start|stop> must be specified")
+		return
+	}
+	action = strings.ToLower(args[0])
+	if err = f.Parse(args[1:]); err != nil {
+		return
+	}
+	if len(f.Args()) != 0 {
+		err = fmt.Errorf("unexpected VPN arguments: %s", strings.Join(f.Args(), " "))
+	}
+	return
 }
 
 func setupVpnClientKey(awsCfg aws.Config, args []string,
@@ -168,6 +202,24 @@ func runLocal(cmdAndArgs []string, stdinReader io.Reader) (string, error) {
 	return string(output), nil
 }
 
+// Keep stderr and stdin live for errors and sudo prompts, even without verbose output.
+func runVpnCommand(cmd *exec.Cmd, verbose bool) error {
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = io.Discard
+	if verbose {
+		cmd.Stdout = os.Stderr
+	}
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+func vpnScriptArgs(verbose bool, args ...string) []string {
+	if verbose {
+		return append([]string{"-v"}, args...)
+	}
+	return args
+}
+
 func readClientPubKey() (string, error) {
 	configDir, err := getConfigDir()
 	if err != nil {
@@ -193,7 +245,7 @@ func readServerPubKey(selectedResult *iaws.LaunchEc2SpotResult) (string, error) 
 	return strings.Split(serverPubKey, "\n")[0], nil
 }
 
-func startVpnServer(selectedResult *iaws.LaunchEc2SpotResult) error {
+func startVpnServer(selectedResult *iaws.LaunchEc2SpotResult, verbose bool) error {
 	fmt.Fprintf(os.Stderr, "Copying vpn setup scripts to spot instance...\n")
 
 	cmdAndArgs := []string{"mkdir", "-p", VpnServerWorkingDir}
@@ -220,9 +272,12 @@ func startVpnServer(selectedResult *iaws.LaunchEc2SpotResult) error {
 
 	fmt.Fprintf(os.Stderr, "Starting vpn server...\n")
 
-	cmdAndArgs = []string{"cd " + VpnServerWorkingDir + ";",
-		"./" + SetupVpnServerScript, clientPubKey, ServerPubKeyFile}
-	_, err = runRemote(selectedResult, cmdAndArgs, nil)
+	cmdAndArgs = []string{"cd " + VpnServerWorkingDir + ";", "./" + SetupVpnServerScript}
+	cmdAndArgs = append(cmdAndArgs, vpnScriptArgs(verbose, clientPubKey, ServerPubKeyFile)...)
+	sshArgs := []string{"-i", selectedResult.LocalKeyFile, "-o",
+		"StrictHostKeyChecking=no", selectedResult.User + "@" + selectedResult.PublicIp}
+	sshArgs = append(sshArgs, cmdAndArgs...)
+	err = runVpnCommand(exec.Command("ssh", sshArgs...), verbose)
 	if err != nil {
 		return fmt.Errorf("Failed to start vpn server: %w", err)
 	}
@@ -231,7 +286,7 @@ func startVpnServer(selectedResult *iaws.LaunchEc2SpotResult) error {
 }
 
 func startVpnClient(awsCfg aws.Config,
-	selectedResult *iaws.LaunchEc2SpotResult) error {
+	selectedResult *iaws.LaunchEc2SpotResult, verbose bool) error {
 
 	tempDir, err := ioutil.TempDir("", "spotsh.vpn.*")
 	if err != nil {
@@ -258,25 +313,28 @@ func startVpnClient(awsCfg aws.Config,
 
 	fmt.Fprintf(os.Stderr, "Starting vpn client...\n")
 
-	cmdAndArgs := []string{vpnSetupScriptPath, serverPubKey,
-		selectedResult.PublicIp, clientPrivKeyFilePath}
-	_, err = runLocal(cmdAndArgs, nil)
+	cmdAndArgs := vpnScriptArgs(verbose, serverPubKey, selectedResult.PublicIp, clientPrivKeyFilePath)
+	err = runVpnCommand(exec.Command(vpnSetupScriptPath, cmdAndArgs...), verbose)
 	if err != nil {
 		return fmt.Errorf("Failed to start vpn client: %w", err)
 	}
 
-	vpnTagKey := iaws.DefaultTagPrefix + "." + iaws.VpnTagSuffix
-	err = iaws.UpdateTag(awsCfg, selectedResult.InstanceId,
-		vpnTagKey, "true")
+	err = updateVpnTag(awsCfg, selectedResult, "true", verbose)
 	if err != nil {
-		return fmt.Errorf("VPN started but failed to update instance's vpn tag: %w", err)
+		fmt.Fprintf(os.Stderr, "VPN tag update failed; rolling back local routing...\n")
+		if cleanupErr := teardownVpnClient(verbose); cleanupErr != nil {
+			return fmt.Errorf("VPN tag update failed: %w; local cleanup also failed: %v", err, cleanupErr)
+		}
+		return fmt.Errorf("VPN tag update failed; local VPN stopped (tag state may be uncertain): %w", err)
+	}
+	if verbose {
+		fmt.Fprintf(os.Stderr, "VPN client started and instance tag updated.\n")
 	}
 
 	return nil
 }
 
-func stopVpnClient(awsCfg aws.Config,
-	selectedResult *iaws.LaunchEc2SpotResult) error {
+func teardownVpnClient(verbose bool) error {
 
 	tempDir, err := ioutil.TempDir("", "spotsh.vpn.*")
 	if err != nil {
@@ -294,17 +352,30 @@ func stopVpnClient(awsCfg aws.Config,
 
 	fmt.Fprintf(os.Stderr, "Stopping vpn client...\n")
 
-	cmdAndArgs := []string{vpnTeardownScriptPath}
-	_, err = runLocal(cmdAndArgs, nil)
+	err = runVpnCommand(exec.Command(vpnTeardownScriptPath, vpnScriptArgs(verbose)...), verbose)
 	if err != nil {
 		return fmt.Errorf("Failed to stop vpn client: %w", err)
 	}
 
-	vpnTagKey := iaws.DefaultTagPrefix + "." + iaws.VpnTagSuffix
-	err = iaws.UpdateTag(awsCfg, selectedResult.InstanceId, vpnTagKey, "false")
-	if err != nil {
-		return fmt.Errorf("Failed to update instance's vpn tag: %w", err)
-	}
-
 	return nil
+}
+
+func stopVpnClient(awsCfg aws.Config, selectedResult *iaws.LaunchEc2SpotResult) error {
+	if err := teardownVpnClient(false); err != nil {
+		return err
+	}
+	if err := updateVpnTag(awsCfg, selectedResult, "false", false); err != nil {
+		return fmt.Errorf("VPN client stopped, but failed to update instance's vpn tag: %w", err)
+	}
+	return nil
+}
+
+func updateVpnTag(awsCfg aws.Config, selectedResult *iaws.LaunchEc2SpotResult, value string, verbose bool) error {
+	if verbose {
+		fmt.Fprintf(os.Stderr, "Updating instance VPN tag to %s (timeout %s)...\n", value, vpnTagTimeout)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), vpnTagTimeout)
+	defer cancel()
+	return iaws.UpdateTagContext(ctx, awsCfg, selectedResult.InstanceId,
+		iaws.DefaultTagPrefix+"."+iaws.VpnTagSuffix, value)
 }

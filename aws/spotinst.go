@@ -900,6 +900,12 @@ func TerminateInstance(awsCfg aws.Config, instanceId string) error {
 
 func UpdateTag(awsCfg aws.Config, instanceId string, key string,
 	value string) error {
+	return UpdateTagContext(context.Background(), awsCfg, instanceId, key, value)
+}
+
+// UpdateTagContext updates a tag, respecting cancellation and deadlines.
+func UpdateTagContext(ctx context.Context, awsCfg aws.Config, instanceId string,
+	key string, value string) error {
 
 	ec2Client := ec2.NewFromConfig(awsCfg)
 
@@ -913,7 +919,7 @@ func UpdateTag(awsCfg aws.Config, instanceId string, key string,
 		},
 	}
 
-	_, err := ec2Client.CreateTags(context.Background(), tagInput)
+	_, err := ec2Client.CreateTags(ctx, tagInput)
 	if err != nil {
 		return err
 	}

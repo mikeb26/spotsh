@@ -12,7 +12,7 @@ Spot Shell (spotsh) is a Go CLI that launches and connects to an AWS EC2 **spot*
 
 ## Setup / build commands
 Prereqs:
-- Go: see `go.mod` (currently `go 1.22.3`).
+- Go: see `go.mod` (currently `go 1.25.0`).
 - This repo expects vendored dependencies (Makefile sets `GOFLAGS=-mod=vendor`).
 
 Common commands:
@@ -25,7 +25,7 @@ Common commands:
 Most tests under `./aws` are **integration tests** that call real AWS APIs and may create/modify resources.
 
 - Minimal local unit tests only (no AWS calls):
-  - `go test .`
+  - `go test . ./cmd/spotsh` (VPN script tests mock network, sudo, and AWS operations).
 
 - Full test suite (requires AWS credentials + may create resources):
   - `go test ./...` (or `make test`)
@@ -47,7 +47,7 @@ CI-specific:
 
 Agent guidance:
 - Do **not** run AWS integration tests unless the user explicitly wants it and understands the cost/side effects.
-- If you need quick validation in restricted environments, use `go test .` plus `gofmt`/compile checks.
+- If you need quick validation in restricted environments, use `go test . ./cmd/spotsh` plus `gofmt`/compile checks.
 
 ## Keeping AGENTS.md up to date
 - Update this `AGENTS.md` whenever you change workflows, repo layout, build/test commands, CI behavior, or any guidance an agent would rely on.
@@ -63,6 +63,7 @@ Agent guidance:
 - Never log or exfiltrate AWS credentials, account IDs, or other secrets.
 - Be cautious with changes that affect resource creation/deletion (EC2, IAM, SG rules, AMIs) and anything that could increase cost.
 - The VPN feature shells out to local and remote commands (WireGuard/SSH). Treat embedded scripts as security-sensitive.
+- `spotsh vpn -v start` and `spotsh vpn -v stop` enable live diagnostics; the flag is also accepted after the action. Safety checks, errors, and sudo prompts remain active without it.
 
 ## Release notes
 - Releases are handled in CircleCI and use `git describe --tags` to populate `cmd/spotsh/version.txt` for tagged builds.

@@ -242,12 +242,25 @@ shell instances. It is a full IPv4 tunnel: `vpn start` adds a UDP/26026
 security-group rule limited to the current public IP before changing local
 routing. The AWS identity therefore needs permission to describe and authorize
 security-group ingress rules, in addition to the normal VPN prerequisites.
+The client also needs `ping` for the pre-routing tunnel check.
 
 ```bash
 spotsh launch --os amzn2023
 spotsh vpn start
 spotsh vpn stop
 ```
+
+Use `spotsh vpn -v start` (or `spotsh vpn start -v`) for live server and client
+diagnostics; `-v` also works with `vpn stop`. Errors and sudo prompts remain
+visible without it. Startup checks that the tunnel server responds before
+switching IPv4 routing. A missing handshake suggests checking
+UDP/26026 ingress, NAT, keys and the server's WireGuard interface; a handshake
+without a response suggests checking the server interface and firewall. A
+successful check does not prove internet forwarding or DNS works. If the
+subsequent EC2 tag update fails or times out, local routing is rolled back;
+the remote tag may still have changed. `vpn stop` attempts local cleanup before
+looking up the instance in AWS, but may still report an AWS error afterwards.
+Never share private keys or credentials when reporting diagnostic output.
 
 ## AI agent workflows
 
@@ -292,8 +305,8 @@ Available Commands:
                                  instance
   upgrade                        Upgrade to the latest version of spotsh
   version                        Print spotsh's version string
-  vpn [<SSHFLAGS>] start         Start VPN session to a spot shell instance
-  vpn [<SSHFLAGS>] stop          Teardown VPN session to a spot shell instance
+  vpn [<VPNFLAGS>] start         Start VPN session to a spot shell instance
+  vpn [<VPNFLAGS>] stop          Teardown local VPN before updating instance tag
   image [<IMAGEFLAGS>]           Create an AMI from an existing spot shell instance
 
 By default when command is not specified spotsh will attempt to ssh to
@@ -319,7 +332,7 @@ make build
 Safe local validation that does not call AWS APIs:
 
 ```bash
-go test .
+go test . ./cmd/spotsh
 ```
 
 The broader test targets include AWS integration tests under `./aws`. They may

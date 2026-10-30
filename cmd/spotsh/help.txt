@@ -19,8 +19,8 @@ Available Commands:
                                  instance
   upgrade                        Upgrade to the latest version of spotsh
   version                        Print spotsh's version string
-  vpn [<SSHFLAGS>] start         Start VPN session to a spot shell instance
-  vpn [<SSHFLAGS>] stop          Teardown VPN session to a spot shell instance
+  vpn [<VPNFLAGS>] start         Start VPN session to a spot shell instance
+  vpn [<VPNFLAGS>] stop          Teardown local VPN before updating instance tag
   image [<IMAGEFLAGS>]           Create an AMI from an existing spot shell instance
 
 By default when command is not specified spotsh will attempt to ssh to
@@ -30,6 +30,12 @@ exist, it will be created.
 SSHFLAGS:                                       | DEFAULT
   --instance-id <EC2_instance_id>               | existing spotsh
                                                   instance if running
+
+VPNFLAGS:                                       | DEFAULT
+  --instance-id <EC2_instance_id>               | existing spotsh
+                                                  instance if running
+  -v                                            | false; show VPN diagnostics
+  VPN flags can appear before or after start/stop.
 
 LAUNCHFLAGS:                                    | DEFAULT
   --os <OPERATING_SYSTEM>                       | amzn2

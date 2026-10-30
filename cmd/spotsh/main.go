@@ -11,6 +11,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net"
 	"os"
@@ -1108,7 +1109,13 @@ func main() {
 		args = args[1:]
 	}
 
-	if subCommandName != "upgrade" {
+	// Do not contact the release server before VPN stop restores local routing.
+	isVpnStop := false
+	if subCommandName == "vpn" {
+		_, vpnAction, _, vpnArgsErr := parseVpnArgs(args, io.Discard)
+		isVpnStop = vpnArgsErr == nil && vpnAction == "stop"
+	}
+	if subCommandName != "upgrade" && !isVpnStop {
 		checkAndPrintUpgradeWarning()
 	}
 	if subCommandName == "" {
